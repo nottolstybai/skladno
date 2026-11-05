@@ -1,0 +1,363 @@
+:root {
+  --bg: #f4efe6;
+  --ink: #3b3430;
+  --muted: #8d8379;
+  --accent: #d9644f;
+  --accent-ink: #ffffff;
+  --edge: #d6ccbf;
+  --btn: #ffffff;
+  --btn-ink: #3b3430;
+  --shadow: 0 1px 2px rgb(60 45 30 / 0.18), 0 4px 14px rgb(60 45 30 / 0.08);
+
+  /* Цвета бумаги одинаковы в любой теме: бумага есть бумага. */
+  --paper-ink: #3b3430;
+  --c0: #fffdf8; /* белая изнанка */
+  --c1: #ef8a7b; /* коралловый */
+  --c2: #7fb0e3; /* небесный */
+  --c3: #86cfa8; /* мятный */
+  --c4: #f2cd6b; /* медовый */
+  --c5: #b7a2e0; /* лавандовый */
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1b18;
+    --ink: #efe7dc;
+    --muted: #a39788;
+    --accent: #ef8a6f;
+    --accent-ink: #1f1b18;
+    --edge: #5b5148;
+    --btn: #2d2723;
+    --btn-ink: #efe7dc;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 4px 14px rgb(0 0 0 / 0.3);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow-x: clip;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app {
+  max-width: 480px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.top { text-align: center; }
+
+h1 {
+  margin: 4px 0 0;
+  font: 700 48px/1 Caveat, cursive;
+  letter-spacing: 0.5px;
+}
+
+.meta {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+/* ---------- образец ---------- */
+
+.goal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.target {
+  display: flex;
+  padding: 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.swatch {
+  width: var(--sw);
+  height: var(--sw);
+  background: var(--paint);
+  box-shadow: inset -1px 0 rgb(0 0 0 / 0.08);
+}
+
+.swatch:first-child { border-radius: 3px 0 0 3px; }
+.swatch:last-child { border-radius: 0 3px 3px 0; box-shadow: none; }
+
+.target.done .swatch { animation: glow 900ms ease both; }
+
+/* ---------- стол с бумагой ---------- */
+
+.table {
+  position: relative;
+  /* место сверху под стрелки, снизу — под полоску изнанки */
+  height: calc(64px + var(--cell, 40px) * 1.32 + 22px);
+  margin-top: 4px;
+}
+
+.board {
+  position: absolute;
+  top: 64px;
+  left: 0;
+  width: 0;
+  height: calc(var(--cell) * 1.32 + 10px);
+  perspective: 1100px;
+  transition: transform 480ms cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+.board.instant { transition: none; }
+
+.c0 {
+  --paint: var(--c0);
+  /* белую бумагу на светлом фоне обводим, иначе она теряется */
+  outline: 1px solid color-mix(in srgb, var(--edge) 80%, transparent);
+  outline-offset: -1px;
+}
+.c1 { --paint: var(--c1); }
+.c2 { --paint: var(--c2); }
+.c3 { --paint: var(--c3); }
+.c4 { --paint: var(--c4); }
+.c5 { --paint: var(--c5); }
+
+.cell {
+  position: absolute;
+  top: 0;
+  width: var(--cell);
+  height: var(--cell);
+  background: var(--paint);
+  display: grid;
+  place-items: center;
+  box-shadow: inset -1px 0 rgb(0 0 0 / 0.07), 0 1px 0 rgb(0 0 0 / 0.06);
+}
+
+/* Толщина стопки: чем больше слоёв, тем больше «бумажных краёв» снизу. */
+.cell[data-layers="2"] { box-shadow: inset -1px 0 rgb(0 0 0 / 0.07), 0 2px 0 var(--edge); }
+.cell[data-layers="3"] { box-shadow: inset -1px 0 rgb(0 0 0 / 0.07), 0 2px 0 var(--edge), 0 4px 0 color-mix(in srgb, var(--edge) 70%, var(--bg)); }
+.cell[data-layers="4"] {
+  box-shadow: inset -1px 0 rgb(0 0 0 / 0.07), 0 2px 0 var(--edge), 0 4px 0 color-mix(in srgb, var(--edge) 70%, var(--bg)),
+    0 6px 0 color-mix(in srgb, var(--edge) 45%, var(--bg));
+}
+
+.under {
+  position: absolute;
+  top: calc(var(--cell) + 10px);
+  width: var(--cell);
+  height: calc(var(--cell) * 0.32);
+  background: var(--paint);
+  opacity: 0.85;
+  box-shadow: inset -1px 0 rgb(0 0 0 / 0.07);
+}
+
+.lifted { visibility: hidden; }
+
+.letter {
+  font: 700 calc(var(--cell) * 0.78) / 1 Caveat, cursive;
+  color: var(--paper-ink);
+  opacity: 0;
+  animation: appear 420ms ease both;
+  animation-delay: calc(var(--i) * 110ms + 340ms);
+}
+
+.cell.solved {
+  animation: turn 720ms cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i) * 110ms);
+}
+
+/* ---------- линии сгиба и стрелки ---------- */
+
+.crease {
+  position: absolute;
+  top: -8px;
+  width: var(--hit);
+  margin-left: calc(var(--hit) / -2);
+  height: calc(var(--cell) * 1.32 + 26px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  z-index: 3;
+}
+
+.crease::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 50%;
+  border-left: 2px dashed transparent;
+  transform: translateX(-1px);
+  transition: border-color 120ms;
+}
+
+@media (hover: hover) {
+  .crease:hover::before { border-color: var(--muted); }
+}
+
+.crease:focus-visible { outline: none; }
+.crease:focus-visible::before { border-color: var(--muted); }
+.crease.selected::before { border-color: var(--accent); }
+
+.arrows {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.arrow {
+  position: absolute;
+  top: 8px;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 24px;
+  line-height: 1;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  animation: pop 160ms ease-out both;
+}
+
+/* ---------- анимация сгиба ---------- */
+
+.flap {
+  position: absolute;
+  top: 0;
+  height: var(--cell);
+  transform-style: preserve-3d;
+  transition: transform 560ms cubic-bezier(0.45, 0.05, 0.25, 1);
+  z-index: 5;
+}
+
+.card {
+  position: absolute;
+  top: 0;
+  width: var(--cell);
+  height: var(--cell);
+  transform-style: preserve-3d;
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  background: var(--paint);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow: inset -1px 0 rgb(0 0 0 / 0.07);
+}
+
+.face.back { transform: rotateY(180deg); }
+
+/* ---------- сгибы, статус, кнопки ---------- */
+
+.legend {
+  margin: -6px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.folds {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+}
+
+.dot.used {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.status {
+  min-height: 3.2em;
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.status .word {
+  display: block;
+  color: var(--ink);
+  font: 700 34px/1.1 Caveat, cursive;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.btn {
+  min-width: 120px;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--btn);
+  color: var(--btn-ink);
+  font: inherit;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@keyframes appear {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes turn {
+  from { transform: rotateY(0); }
+  to { transform: rotateY(360deg); }
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes glow {
+  50% { transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board, .flap { transition: none; }
+  .cell.solved, .letter, .arrow, .target.done .swatch { animation-duration: 1ms; animation-delay: 0ms; }
+}

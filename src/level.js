@@ -17,14 +17,22 @@ export function visibleColors(state, level) {
   return topLayers(state).map((layer) => level.faces[faceId(layer)].color);
 }
 
+// Что видно снизу: нижняя сторона самого нижнего слоя в каждой позиции.
+export function bottomColors(state, level) {
+  return state.stacks.map(([bottom]) => level.faces[faceId({ cell: bottom.cell, flipped: !bottom.flipped })].color);
+}
+
 export function isSolved(state, level) {
   if (state.w !== level.targetW || state.h !== level.targetH) return false;
   const colors = visibleColors(state, level);
   return colors.every((color, i) => color === level.target[i]);
 }
 
+// Буквы на верхних гранях по позициям ('' — буквы нет).
+export function topLetters(state, level) {
+  return topLayers(state).map((layer) => level.faces[faceId(layer)].letter);
+}
+
 export function revealedLetters(state, level) {
-  return topLayers(state)
-    .map((layer) => level.faces[faceId(layer)].letter)
-    .join('');
+  return topLetters(state, level).join('');
 }

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Складно</title>
+  <meta name="description" content="Ежедневная головоломка: сложи бумагу так, чтобы проступило слово дня.">
+  <meta name="theme-color" content="#f4efe6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1f1b18" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 8h14v18H4z' fill='%23ef8a7b'/%3E%3Cpath d='M18 8l10 4v14l-10-0z' fill='%237fb0e3'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="src/main.js"></script>
+</head>
+<body>
+  <main class="app">
+    <header class="top">
+      <h1>Складно</h1>
+      <p class="meta" id="meta"></p>
+    </header>
+
+    <section class="goal" aria-label="Образец">
+      <span class="label">сложи так, чтобы сверху было</span>
+      <div class="target" id="target"></div>
+    </section>
+
+    <section class="table" id="table" aria-label="Бумага">
+      <div class="board" id="board"></div>
+      <div class="arrows" id="arrows"></div>
+    </section>
+    <p class="legend">тонкая полоска внизу — обратная сторона бумаги</p>
+
+    <div class="folds" id="folds"></div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+
+    <div class="controls">
+      <button type="button" class="btn" id="undo">Отменить</button>
+      <button type="button" class="btn" id="reset">Заново</button>
+    </div>
+  </main>
+</body>
+</html>

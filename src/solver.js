@@ -10,6 +10,15 @@ import { createSheet, faceId, fold, minFolds, possibleMoves, stateKey, topLayers
 
 const cache = new Map();
 
+// Успеет ли лист дойти до размера цели за `remaining` сгибов.
+export function canReachSize(state, { targetW, targetH }, remaining) {
+  return (
+    state.w >= targetW &&
+    state.h >= targetH &&
+    minFolds(state.w, targetW) + minFolds(state.h, targetH) <= remaining
+  );
+}
+
 // Все наборы верхних граней для листа w×h, сложенного до targetW×targetH
 // не больше чем за maxDepth сгибов. Перебор в ширину, одинаковые состояния — один раз.
 // Возвращает массив { faces: номера верхних граней, depth: минимум сгибов, path: сгибы },
@@ -18,11 +27,8 @@ export function reachableTops({ w, h, targetW, targetH }, maxDepth) {
   const cacheKey = `${w}x${h}→${targetW}x${targetH}≤${maxDepth}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
 
-  // Успеет ли лист дойти до размера цели за `remaining` сгибов.
-  const canReach = (s, remaining) =>
-    s.w >= targetW &&
-    s.h >= targetH &&
-    minFolds(s.w, targetW) + minFolds(s.h, targetH) <= remaining;
+  const target = { targetW, targetH };
+  const canReach = (s, remaining) => canReachSize(s, target, remaining);
 
   const start = createSheet(w, h);
   const seen = new Set([stateKey(start)]);
