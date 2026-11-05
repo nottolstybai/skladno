@@ -465,6 +465,27 @@ function emptyTiles(items, w, h) {
 
 export const SCENE_NAMES = Object.keys(SCENES);
 
+const SCENE_TITLES = {
+  fuji: ['🗻', 'Гора'],
+  moon: ['🌕', 'Луна над заливом'],
+  sakura: ['🌸', 'Сакура'],
+  torii: ['⛩️', 'Тории'],
+  cranes: ['🕊️', 'Журавли'],
+};
+const SKY_TITLES = { dawn: 'на рассвете', day: 'днём', dusk: 'на закате', night: '' };
+
+// Название картинки для альбома и «поделиться»: «🗻 Гора на закате».
+export function pictureTitle({ scene, sky }, { emoji = true } = {}) {
+  const [icon, name] = SCENE_TITLES[scene] ?? ['🖼️', 'Картинка'];
+  const text = [name, SKY_TITLES[sky] ?? ''].filter(Boolean).join(' ');
+  return emoji ? `${icon} ${text}` : text;
+}
+
+// SVG → адрес для background-image / <img>.
+export function pictureUrl(svg) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 // Картинка: { svg, scene, sky }. Детерминирована: тот же rand — та же картинка.
 export function drawPicture(rand, { w, h, scene = pick(rand, SCENE_NAMES) }) {
   const skyName = scene === 'moon' ? 'night' : pick(rand, ['dawn', 'day', 'dusk']);

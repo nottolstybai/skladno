@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import {
   addDays,
-  collectedWords,
+  collectedDays,
   currentStreak,
   emptyStats,
   formatDuration,
@@ -71,19 +71,31 @@ test('formatDuration', () => {
 });
 
 test('shareText без слова, с серией и ссылкой', () => {
-  const text = shareText({ dateLabel: '5 ноября', target: [1, 2, 4], folds: 3, hints: 0, undos: 0, streak: 4, url: 'https://x' });
-  assert.equal(text, 'Складно · 5 ноября\n🟧🟦🟨\n3 сгиба · без подсказок · с первой попытки\n🔥 серия: 4\nhttps://x');
-  const short = shareText({ dateLabel: '6 ноября', target: [0], folds: 1, hints: 2, undos: 3, streak: 1, url: '' });
-  assert.equal(short, 'Складно · 6 ноября\n⬜\n1 сгиб · подсказок: 2 · отмен: 3');
+  const text = shareText({ dateLabel: '5 ноября', title: '🗻 Фудзи на закате', folds: 3, hints: 0, undos: 0, streak: 4, url: 'https://x' });
+  assert.equal(text, 'Складно · 5 ноября\n🗻 Фудзи на закате\n3 сгиба · без подсказок · с первой попытки\n🔥 серия: 4\nhttps://x');
+  const short = shareText({ dateLabel: '6 ноября', title: '🌕 Луна', folds: 1, hints: 2, undos: 3, streak: 1, url: '' });
+  assert.equal(short, 'Складно · 6 ноября\n🌕 Луна\n1 сгиб · подсказок: 2 · отмен: 3');
 });
 
-test('collectedWords — слова по датам, старые записи без слова пропускаются', () => {
+test('collectedDays — по датам, старые записи без слова пропускаются', () => {
   let stats = emptyStats();
-  stats = recordSolve(stats, '2026-11-06', { word: 'ПЛЕД', hints: 0, undos: 0, ms: 1 });
+  const picture = { seed: 1, scene: 'moon', w: 2, h: 2 };
+  stats = recordSolve(stats, '2026-11-06', { word: 'ПЛЕД', hints: 0, undos: 0, ms: 1, picture });
   stats = recordSolve(stats, '2026-11-05', { word: 'ЗВЕЗДА', hints: 0, undos: 0, ms: 1 });
   stats = recordSolve(stats, '2026-11-07', { folds: 3, hints: 0, ms: 1 });
-  assert.deepEqual(collectedWords(stats), [
-    { date: '2026-11-05', word: 'ЗВЕЗДА' },
-    { date: '2026-11-06', word: 'ПЛЕД' },
+  assert.deepEqual(collectedDays(stats), [
+    { date: '2026-11-05', word: 'ЗВЕЗДА', picture: null },
+    { date: '2026-11-06', word: 'ПЛЕД', picture },
   ]);
+});
+
+test('день из архива попадает в альбом, но не в серию', () => {
+  const result = { word: 'ЧАЙ', hints: 0, undos: 0, ms: 1 };
+  let stats = recordSolve(emptyStats(), '2026-11-05', result);
+  stats = recordSolve(stats, '2026-11-03', result, { late: true });
+  assert.equal(stats.solved, 2);
+  assert.equal(stats.streak, 1);
+  assert.equal(stats.lastSolved, '2026-11-05');
+  assert.equal(stats.days['2026-11-03'].late, true);
+  assert.equal(recordSolve(stats, '2026-11-03', result, { late: true }), stats);
 });

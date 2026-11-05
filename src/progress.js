@@ -6,8 +6,9 @@
 //   streak,      — серия на момент последнего решённого дня
 //   best,        — лучшая серия
 //   lastSolved,  — 'YYYY-MM-DD' последнего решённого дня или null
-//   days,        — { 'YYYY-MM-DD': { word, hints, undos, ms } }
+//   days,        — { 'YYYY-MM-DD': { word, hints, undos, ms, picture, late } }
 // }
+// late — день решён позже, из архива: в альбом попадает, на серию не влияет.
 
 export function addDays(key, n) {
   const [y, m, d] = key.split('-').map(Number);
@@ -33,8 +34,9 @@ export function parseStats(raw) {
 }
 
 // Засчитать решённый день. Повторное решение того же дня ничего не меняет.
-export function recordSolve(stats, key, result) {
+export function recordSolve(stats, key, result, { late = false } = {}) {
   if (stats.days[key]) return stats;
+  if (late) return { ...stats, solved: stats.solved + 1, days: { ...stats.days, [key]: { ...result, late: true } } };
   const streak = stats.lastSolved === addDays(key, -1) ? stats.streak + 1 : 1;
   return {
     solved: stats.solved + 1,
@@ -65,13 +67,11 @@ export function formatDuration(ms) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
 
-const EMOJI = ['⬜', '🟧', '🟦', '🟩', '🟨', '🟪'];
-
 // Текст «поделиться». Слово не пишем — чтобы не испортить сюрприз другим.
-export function shareText({ dateLabel, target, folds, hints, undos, streak, url }) {
+export function shareText({ dateLabel, title, folds, hints, undos, streak, url }) {
   const lines = [
     `Складно · ${dateLabel}`,
-    target.map((color) => EMOJI[color]).join(''),
+    title,
     [
       `${folds} ${plural(folds, ['сгиб', 'сгиба', 'сгибов'])}`,
       hints === 0 ? 'без подсказок' : `подсказок: ${hints}`,
@@ -83,10 +83,10 @@ export function shareText({ dateLabel, target, folds, hints, undos, streak, url 
   return lines.join('\n');
 }
 
-// Собранные слова дня — по порядку дат.
-export function collectedWords(stats) {
+// Собранные дни — по порядку дат: { date, word, picture }.
+export function collectedDays(stats) {
   return Object.entries(stats.days)
     .filter(([, day]) => day && typeof day.word === 'string')
     .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([date, day]) => ({ date, word: day.word }));
+    .map(([date, day]) => ({ date, word: day.word, picture: day.picture ?? null }));
 }

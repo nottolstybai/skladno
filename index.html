@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ru" data-version="202611052039">
+<html lang="ru" data-version="202611052052">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Складно</title>
-  <meta name="description" content="Ежедневная головоломка: сложи бумагу так, чтобы проступило слово дня.">
+  <meta name="description" content="Ежедневная головоломка: сложи лист бумаги так, чтобы собралась картинка дня.">
   <meta name="theme-color" content="#f2efe9" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#141312" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
@@ -14,50 +14,47 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Manrope:wght@400;600;700;800&display=swap">
-  <link rel="stylesheet" href="style.css?v=202611052039">
+  <link rel="stylesheet" href="style.css?v=202611052052">
   <script type="importmap">
   {
     "imports": {
-      "./src/daily.js": "./src/daily.js?v=202611052039",
-      "./src/fold.js": "./src/fold.js?v=202611052039",
-      "./src/game.js": "./src/game.js?v=202611052039",
-      "./src/generator.js": "./src/generator.js?v=202611052039",
-      "./src/level.js": "./src/level.js?v=202611052039",
-      "./src/picture.js": "./src/picture.js?v=202611052039",
-      "./src/progress.js": "./src/progress.js?v=202611052039",
-      "./src/rng.js": "./src/rng.js?v=202611052039",
-      "./src/solver.js": "./src/solver.js?v=202611052039",
-      "./src/tutorial.js": "./src/tutorial.js?v=202611052039",
-      "./src/version.js": "./src/version.js?v=202611052039",
-      "./src/words.js": "./src/words.js?v=202611052039"
+      "./src/daily.js": "./src/daily.js?v=202611052052",
+      "./src/fold.js": "./src/fold.js?v=202611052052",
+      "./src/game.js": "./src/game.js?v=202611052052",
+      "./src/generator.js": "./src/generator.js?v=202611052052",
+      "./src/level.js": "./src/level.js?v=202611052052",
+      "./src/picture.js": "./src/picture.js?v=202611052052",
+      "./src/progress.js": "./src/progress.js?v=202611052052",
+      "./src/rng.js": "./src/rng.js?v=202611052052",
+      "./src/solver.js": "./src/solver.js?v=202611052052",
+      "./src/tutorial.js": "./src/tutorial.js?v=202611052052",
+      "./src/version.js": "./src/version.js?v=202611052052",
+      "./src/words.js": "./src/words.js?v=202611052052"
     }
   }
   </script>
-  <script type="module" src="src/main.js?v=202611052039"></script>
+  <script type="module" src="src/main.js?v=202611052052"></script>
 </head>
 <body>
   <main class="app">
     <div class="topbar">
-      <span class="chip streak" id="streak" title="Дней подряд" hidden></span>
-      <button type="button" class="chip action" id="help" data-focus="help">Как играть</button>
+      <h1>Складно</h1>
+      <span class="spacer"></span>
+      <button type="button" class="chip action" id="album" data-focus="album">Альбом</button>
+      <button type="button" class="chip action icon-only" id="sound" data-focus="sound">🔈</button>
+      <button type="button" class="chip action" id="help" data-focus="help">Правила</button>
     </div>
 
-    <header class="top">
-      <h1>Складно</h1>
-      <p class="meta" id="meta"></p>
-    </header>
-
-    <section class="goal" aria-labelledby="goal-label">
-      <span class="label" id="goal-label"></span>
+    <section class="goal">
       <div class="target" id="target" role="img"></div>
+      <p class="goal-text" id="goal-text"></p>
     </section>
 
-    <section class="table" id="table" aria-label="Бумага"><div class="board" id="board"></div></section>
-    <p class="legend"><span class="corner-icon" aria-hidden="true"></span>уголок клетки — цвет её обратной стороны</p>
+    <section class="table" id="table" aria-label="Лист бумаги"><div class="board" id="board"></div></section>
 
-    <div class="choices" id="choices"></div>
     <div class="folds" id="folds" role="img"></div>
     <p class="status" id="status" role="status" aria-live="polite"></p>
+    <div class="choices" id="choices"></div>
     <div class="controls" id="controls"></div>
   </main>
 
