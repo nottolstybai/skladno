@@ -9,6 +9,7 @@ import {
   foldsUsed,
   gameStatus,
   hintMove,
+  landedPositions,
   originAfterFold,
   playFold,
   restart,
@@ -139,4 +140,28 @@ test('подсказки ведут к решению из любого реша
 
   const stuck = playFold(createGame(level), { axis: 'x', at: 4, from: 'start' });
   assert.equal(hintMove(stuck), null);
+});
+
+test('landedPositions — куда легла перевёрнутая часть', () => {
+  assert.deepEqual(landedPositions(createSheet(6), { axis: 'x', at: 2, from: 'start' }), [0, 1]);
+  assert.deepEqual(landedPositions(createSheet(6), { axis: 'x', at: 2, from: 'end' }), [0, 1, 2, 3]);
+  assert.deepEqual(landedPositions(createSheet(6), { axis: 'x', at: 4, from: 'end' }), [2, 3]);
+
+  const rand = mulberry32(9);
+  for (let round = 0; round < 100; round++) {
+    let state = createSheet(2 + Math.floor(rand() * 9));
+    for (let moves = possibleMoves(state); moves.length > 0; moves = possibleMoves(state)) {
+      const move = pick(rand, moves);
+      const movingCells = new Set();
+      state.stacks.forEach((stack, x) => {
+        if (move.from === 'start' ? x < move.at : x >= move.at) for (const layer of stack) movingCells.add(layer.cell);
+      });
+      const next = fold(state, move);
+      const landed = new Set(landedPositions(state, move));
+      next.stacks.forEach((stack, x) => {
+        assert.equal(movingCells.has(stack[stack.length - 1].cell), landed.has(x));
+      });
+      state = next;
+    }
+  }
 });

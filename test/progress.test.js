@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 
 import {
   addDays,
+  collectedWords,
   currentStreak,
   emptyStats,
   formatDuration,
@@ -70,8 +71,19 @@ test('formatDuration', () => {
 });
 
 test('shareText без слова, с серией и ссылкой', () => {
-  const text = shareText({ dateLabel: '5 ноября', target: [1, 2, 4], folds: 3, hints: 0, streak: 4, url: 'https://x' });
-  assert.equal(text, 'Складно · 5 ноября\n🟧🟦🟨\n3 сгиба · без подсказок\n🔥 серия: 4\nhttps://x');
-  const short = shareText({ dateLabel: '6 ноября', target: [0], folds: 1, hints: 2, streak: 1, url: '' });
-  assert.equal(short, 'Складно · 6 ноября\n⬜\n1 сгиб · подсказок: 2');
+  const text = shareText({ dateLabel: '5 ноября', target: [1, 2, 4], folds: 3, hints: 0, undos: 0, streak: 4, url: 'https://x' });
+  assert.equal(text, 'Складно · 5 ноября\n🟧🟦🟨\n3 сгиба · без подсказок · с первой попытки\n🔥 серия: 4\nhttps://x');
+  const short = shareText({ dateLabel: '6 ноября', target: [0], folds: 1, hints: 2, undos: 3, streak: 1, url: '' });
+  assert.equal(short, 'Складно · 6 ноября\n⬜\n1 сгиб · подсказок: 2 · отмен: 3');
+});
+
+test('collectedWords — слова по датам, старые записи без слова пропускаются', () => {
+  let stats = emptyStats();
+  stats = recordSolve(stats, '2026-11-06', { word: 'ПЛЕД', hints: 0, undos: 0, ms: 1 });
+  stats = recordSolve(stats, '2026-11-05', { word: 'ЗВЕЗДА', hints: 0, undos: 0, ms: 1 });
+  stats = recordSolve(stats, '2026-11-07', { folds: 3, hints: 0, ms: 1 });
+  assert.deepEqual(collectedWords(stats), [
+    { date: '2026-11-05', word: 'ЗВЕЗДА' },
+    { date: '2026-11-06', word: 'ПЛЕД' },
+  ]);
 });

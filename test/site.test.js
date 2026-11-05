@@ -7,17 +7,23 @@ import { test } from 'node:test';
 import { applyMoves, createSheet } from '../src/fold.js';
 import { revealedLetters } from '../src/level.js';
 import { solve } from '../src/solver.js';
-import { TUTORIAL_CREASE, TUTORIAL_LEVEL } from '../src/tutorial.js';
+import { TUTORIAL } from '../src/tutorial.js';
 import { VERSION } from '../src/version.js';
 import { PRACTICE_WORDS } from '../src/words.js';
 
-test('обучение: один сгиб, единственный ответ, слово «ДА»', () => {
-  const check = solve(TUTORIAL_LEVEL);
-  assert.equal(check.minDepth, 1);
-  assert.equal(check.arrangements, 1);
-  assert.equal(TUTORIAL_LEVEL.solution[0].at, TUTORIAL_CREASE);
-  const folded = applyMoves(createSheet(TUTORIAL_LEVEL.w), TUTORIAL_LEVEL.solution);
-  assert.equal(revealedLetters(folded, TUTORIAL_LEVEL), 'ДА');
+test('обучение: каждый шаг решается ровно за свои сгибы, единственным способом', () => {
+  assert.equal(TUTORIAL.length, 3);
+  for (const [i, step] of TUTORIAL.entries()) {
+    const { level } = step;
+    const check = solve(level);
+    assert.equal(check.minDepth, level.folds, `шаг ${i + 1}`);
+    assert.equal(check.arrangements, 1, `шаг ${i + 1}`);
+    if (step.crease !== null) assert.equal(level.solution[0].at, step.crease);
+    if (step.side !== null) assert.equal(level.solution[0].from, step.side);
+    const folded = applyMoves(createSheet(level.w), level.solution);
+    assert.equal(revealedLetters(folded, level), level.word);
+    for (const key of ['start', 'selected', 'stuck', 'solved']) assert.ok(step.text[key], `шаг ${i + 1}: ${key}`);
+  }
 });
 
 test('слова тренировки подходят', () => {

@@ -6,7 +6,7 @@
 //   streak,      — серия на момент последнего решённого дня
 //   best,        — лучшая серия
 //   lastSolved,  — 'YYYY-MM-DD' последнего решённого дня или null
-//   days,        — { 'YYYY-MM-DD': { folds, hints, ms } }
+//   days,        — { 'YYYY-MM-DD': { word, hints, undos, ms } }
 // }
 
 export function addDays(key, n) {
@@ -68,13 +68,25 @@ export function formatDuration(ms) {
 const EMOJI = ['⬜', '🟧', '🟦', '🟩', '🟨', '🟪'];
 
 // Текст «поделиться». Слово не пишем — чтобы не испортить сюрприз другим.
-export function shareText({ dateLabel, target, folds, hints, streak, url }) {
+export function shareText({ dateLabel, target, folds, hints, undos, streak, url }) {
   const lines = [
     `Складно · ${dateLabel}`,
     target.map((color) => EMOJI[color]).join(''),
-    `${folds} ${plural(folds, ['сгиб', 'сгиба', 'сгибов'])} · ${hints === 0 ? 'без подсказок' : `подсказок: ${hints}`}`,
+    [
+      `${folds} ${plural(folds, ['сгиб', 'сгиба', 'сгибов'])}`,
+      hints === 0 ? 'без подсказок' : `подсказок: ${hints}`,
+      undos === 0 ? 'с первой попытки' : `отмен: ${undos}`,
+    ].join(' · '),
   ];
   if (streak >= 2) lines.push(`🔥 серия: ${streak}`);
   if (url) lines.push(url);
   return lines.join('\n');
+}
+
+// Собранные слова дня — по порядку дат.
+export function collectedWords(stats) {
+  return Object.entries(stats.days)
+    .filter(([, day]) => day && typeof day.word === 'string')
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, day]) => ({ date, word: day.word }));
 }

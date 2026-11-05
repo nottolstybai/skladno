@@ -9,6 +9,7 @@ const EPOCH_UTC = Date.UTC(2026, 10, 1); // 1 ноября 2026 — день №
 
 // Сложность по дню недели (индекс — Date#getDay(), 0 — воскресенье).
 //   extra     — на сколько клеток полоска длиннее слова
+//   double    — полоска вдвое длиннее слова: решение с большими сгибами и стопками
 //   folds     — сколько сгибов нужно
 //   colors    — сколько цветов в узоре
 //   twoSided  — изнанка цветная (иначе белая)
@@ -16,11 +17,17 @@ export const DIFFICULTY = [
   { name: 'воскресенье', extra: 5, folds: 4, colors: 4, twoSided: true },
   { name: 'понедельник', extra: 2, folds: 2, colors: 3, twoSided: false },
   { name: 'вторник', extra: 3, folds: 2, colors: 3, twoSided: false },
-  { name: 'среда', extra: 3, folds: 2, colors: 4, twoSided: true },
+  { name: 'среда', double: true, folds: 2, colors: 4, twoSided: true },
   { name: 'четверг', extra: 4, folds: 3, colors: 3, twoSided: true },
   { name: 'пятница', extra: 4, folds: 3, colors: 4, twoSided: true },
-  { name: 'суббота', extra: 5, folds: 3, colors: 4, twoSided: true },
+  { name: 'суббота', double: true, folds: 3, colors: 4, twoSided: true },
 ];
+
+// Длина развёрнутой полоски для слова при такой сложности.
+export function stripLength(word, difficulty) {
+  const n = [...word].length;
+  return n + (difficulty.double ? n : difficulty.extra);
+}
 
 // Дата по местному времени в виде 'YYYY-MM-DD'.
 export function dateKey(date) {
@@ -40,10 +47,19 @@ export function difficultyFor(date) {
   return DIFFICULTY[date.getDay()];
 }
 
+// Запись в списке слов — строка или { word, note } (записка к слову).
+export function normalizeEntry(entry) {
+  return typeof entry === 'string' ? { word: entry, note: '' } : { word: entry.word, note: entry.note ?? '' };
+}
+
 // Слова идут по порядку списка, по кругу.
-export function wordFor(date, words) {
+export function entryFor(date, words) {
   const n = words.length;
-  return words[((dayNumber(date) % n) + n) % n];
+  return normalizeEntry(words[((dayNumber(date) % n) + n) % n]);
+}
+
+export function wordFor(date, words) {
+  return entryFor(date, words).word;
 }
 
 // Дни недели от самого лёгкого к самому сложному.
@@ -52,9 +68,10 @@ const EASIEST_FIRST = [1, 2, 3, 4, 5, 6, 0];
 // Пробует сложности по порядку и возвращает первый получившийся уровень.
 export function generateWithFallback(rand, word, difficulties) {
   let lastError;
-  for (const { extra, folds, colors, twoSided } of difficulties) {
+  for (const difficulty of difficulties) {
+    const { folds, colors, twoSided } = difficulty;
     try {
-      return generateLevel(rand, { word, length: word.length + extra, folds, colors, twoSided });
+      return generateLevel(rand, { word, length: stripLength(word, difficulty), folds, colors, twoSided });
     } catch (error) {
       lastError = error;
     }

@@ -7,7 +7,9 @@ import {
   dayNumber,
   DIFFICULTY,
   difficultyFor,
+  entryFor,
   generateWithFallback,
+  stripLength,
   wordFor,
 } from '../src/daily.js';
 import { applyMoves, createSheet } from '../src/fold.js';
@@ -43,7 +45,12 @@ test('dayNumber считает от 1 ноября 2026', () => {
 
 test('сложность по дням недели осуществима', () => {
   assert.equal(DIFFICULTY.length, 7);
-  for (const d of DIFFICULTY) assert.ok(d.folds <= d.extra, `${d.name}: каждый сгиб убирает хотя бы клетку`);
+  for (const d of DIFFICULTY) {
+    // каждый сгиб убирает хотя бы клетку, а слова — от 3 букв
+    assert.ok(d.folds <= stripLength('КОТ', d) - 3, `${d.name}: сгибов больше, чем лишних клеток`);
+  }
+  assert.equal(stripLength('ЛУНА', { double: true }), 8);
+  assert.equal(stripLength('ЛУНА', { extra: 3 }), 7);
   assert.equal(difficultyFor(day(2026, 11, 2)).name, 'понедельник');
   assert.equal(difficultyFor(day(2026, 11, 8)).name, 'воскресенье');
 });
@@ -58,7 +65,17 @@ test('wordFor идёт по списку по кругу', () => {
 
 test('все слова из списка подходят', () => {
   assert.ok(WORDS.length > 0);
-  for (const word of WORDS) assert.match(word, /^[А-ЯЁ]{3,6}$/u);
+  for (const entry of WORDS) {
+    const word = typeof entry === 'string' ? entry : entry.word;
+    assert.match(word, /^[А-ЯЁ]{3,6}$/u);
+  }
+});
+
+test('слово может быть с запиской', () => {
+  const words = ['РАЗ', { word: 'ДВА', note: 'помнишь?' }];
+  assert.deepEqual(entryFor(day(2026, 11, 1), words), { word: 'РАЗ', note: '' });
+  assert.deepEqual(entryFor(day(2026, 11, 2), words), { word: 'ДВА', note: 'помнишь?' });
+  assert.equal(wordFor(day(2026, 11, 2), words), 'ДВА');
 });
 
 test('generateWithFallback берёт первую сложность, которая получилась', () => {

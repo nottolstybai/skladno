@@ -47,6 +47,15 @@ export function originAfterFold(origin, state, move) {
   return move.axis === 'x' ? { x: origin.x + shift, y: origin.y } : { x: origin.x, y: origin.y + shift };
 }
 
+// Куда на новом листе легла перевёрнутая часть: номера позиций по оси сгиба.
+export function landedPositions(state, move) {
+  const size = move.axis === 'x' ? state.w : state.h;
+  const newSize = Math.max(move.at, size - move.at);
+  const count = move.from === 'start' ? move.at : size - move.at;
+  const first = move.from === 'start' ? 0 : newSize - count;
+  return Array.from({ length: count }, (_, i) => first + i);
+}
+
 // Сгиб. Если сгибать уже нельзя — возвращает ту же партию.
 export function playFold(game, move) {
   if (gameStatus(game) !== 'playing') return game;

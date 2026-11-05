@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru" data-version="202611050152">
+<html lang="ru" data-version="202611050213">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -7,35 +7,38 @@
   <meta name="description" content="Ежедневная головоломка: сложи бумагу так, чтобы проступило слово дня.">
   <meta name="theme-color" content="#f2efe9" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#141312" media="(prefers-color-scheme: dark)">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 8h24v16H4z' fill='%23c9573f'/%3E%3Cpath d='M28 16v8h-8z' fill='%232d4a7a'/%3E%3C/svg%3E">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Складно">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Manrope:wght@400;600;700;800&display=swap">
-  <link rel="stylesheet" href="style.css?v=202611050152">
+  <link rel="stylesheet" href="style.css?v=202611050213">
   <script type="importmap">
   {
     "imports": {
-      "./src/daily.js": "./src/daily.js?v=202611050152",
-      "./src/fold.js": "./src/fold.js?v=202611050152",
-      "./src/game.js": "./src/game.js?v=202611050152",
-      "./src/generator.js": "./src/generator.js?v=202611050152",
-      "./src/level.js": "./src/level.js?v=202611050152",
-      "./src/progress.js": "./src/progress.js?v=202611050152",
-      "./src/rng.js": "./src/rng.js?v=202611050152",
-      "./src/solver.js": "./src/solver.js?v=202611050152",
-      "./src/tutorial.js": "./src/tutorial.js?v=202611050152",
-      "./src/version.js": "./src/version.js?v=202611050152",
-      "./src/words.js": "./src/words.js?v=202611050152"
+      "./src/daily.js": "./src/daily.js?v=202611050213",
+      "./src/fold.js": "./src/fold.js?v=202611050213",
+      "./src/game.js": "./src/game.js?v=202611050213",
+      "./src/generator.js": "./src/generator.js?v=202611050213",
+      "./src/level.js": "./src/level.js?v=202611050213",
+      "./src/progress.js": "./src/progress.js?v=202611050213",
+      "./src/rng.js": "./src/rng.js?v=202611050213",
+      "./src/solver.js": "./src/solver.js?v=202611050213",
+      "./src/tutorial.js": "./src/tutorial.js?v=202611050213",
+      "./src/version.js": "./src/version.js?v=202611050213",
+      "./src/words.js": "./src/words.js?v=202611050213"
     }
   }
   </script>
-  <script type="module" src="src/main.js?v=202611050152"></script>
+  <script type="module" src="src/main.js?v=202611050213"></script>
 </head>
 <body>
   <main class="app">
     <div class="topbar">
       <span class="chip streak" id="streak" title="Дней подряд" hidden></span>
-      <button type="button" class="chip action" id="help">Как играть</button>
+      <button type="button" class="chip action" id="help" data-focus="help">Как играть</button>
     </div>
 
     <header class="top">
@@ -43,16 +46,16 @@
       <p class="meta" id="meta"></p>
     </header>
 
-    <section class="goal" aria-label="Образец">
-      <span class="label">сложи так, чтобы сверху было</span>
-      <div class="target" id="target"></div>
+    <section class="goal" aria-labelledby="goal-label">
+      <span class="label" id="goal-label"></span>
+      <div class="target" id="target" role="img"></div>
     </section>
 
     <section class="table" id="table" aria-label="Бумага"><div class="board" id="board"></div></section>
     <p class="legend"><span class="corner-icon" aria-hidden="true"></span>уголок клетки — цвет её обратной стороны</p>
 
     <div class="choices" id="choices"></div>
-    <div class="folds" id="folds"></div>
+    <div class="folds" id="folds" role="img"></div>
     <p class="status" id="status" role="status" aria-live="polite"></p>
     <div class="controls" id="controls"></div>
   </main>
