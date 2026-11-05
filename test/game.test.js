@@ -8,6 +8,7 @@ import {
   foldsLeft,
   foldsUsed,
   gameStatus,
+  hintMove,
   originAfterFold,
   playFold,
   restart,
@@ -124,4 +125,18 @@ test('bottomColors и topLetters', () => {
   const folded = fold(flat, { axis: 'x', at: 1, from: 'end' });
   assert.deepEqual(bottomColors(folded, lvl), [2]);
   assert.deepEqual(topLetters(folded, lvl), ['Б']);
+});
+
+test('подсказки ведут к решению из любого решаемого положения', () => {
+  let game = createGame(level);
+  for (let i = 0; i < level.folds; i++) {
+    const move = hintMove(game);
+    assert.ok(move, `нет подсказки на шаге ${i}`);
+    game = playFold(game, move);
+  }
+  assert.equal(gameStatus(game), 'solved');
+  assert.equal(hintMove(game), null);
+
+  const stuck = playFold(createGame(level), { axis: 'x', at: 4, from: 'start' });
+  assert.equal(hintMove(stuck), null);
 });

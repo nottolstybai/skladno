@@ -6,7 +6,7 @@
 //
 // Партия неизменяемая: каждый ход возвращает новый объект.
 
-import { createSheet, fold } from './fold.js';
+import { createSheet, fold, possibleMoves, stateKey } from './fold.js';
 import { isSolved } from './level.js';
 import { canReachSize } from './solver.js';
 
@@ -61,4 +61,30 @@ export function undo(game) {
 
 export function restart(game) {
   return game.history.length > 1 ? { ...game, history: game.history.slice(0, 1) } : game;
+}
+
+// Подсказка: первый сгиб кратчайшего пути от текущего положения к решению.
+// null — отсюда уже не решить (или уровень решён).
+export function hintMove(game) {
+  if (gameStatus(game) !== 'playing') return null;
+  const left = foldsLeft(game);
+  const { state } = currentEntry(game);
+  const seen = new Set([stateKey(state)]);
+  let frontier = [{ state, first: null }];
+  for (let depth = 0; depth < left && frontier.length > 0; depth++) {
+    const next = [];
+    for (const node of frontier) {
+      for (const move of possibleMoves(node.state)) {
+        const folded = fold(node.state, move);
+        const first = node.first ?? move;
+        if (isSolved(folded, game.level)) return first;
+        const key = stateKey(folded);
+        if (seen.has(key) || !canReachSize(folded, game.level, left - depth - 1)) continue;
+        seen.add(key);
+        next.push({ state: folded, first });
+      }
+    }
+    frontier = next;
+  }
+  return null;
 }

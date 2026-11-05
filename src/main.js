@@ -9,7 +9,18 @@
 // «1e» — линия после 1-й клетки, правая часть (end) налево.
 
 import { dailyLevel } from './daily.js';
-import { createGame, currentEntry, foldsLeft, foldsUsed, gameStatus, playFold, restart, undo } from './game.js';
+import { fold } from './fold.js';
+import {
+  createGame,
+  currentEntry,
+  foldsLeft,
+  foldsUsed,
+  gameStatus,
+  hintMove,
+  playFold,
+  restart,
+  undo,
+} from './game.js';
 import { bottomColors, topLetters, visibleColors } from './level.js';
 import { WORDS } from './words.js';
 
@@ -19,11 +30,14 @@ const ui = {
   target: $('target'),
   table: $('table'),
   board: $('board'),
-  arrows: $('arrows'),
+  choices: $('choices'),
   folds: $('folds'),
   status: $('status'),
   undo: $('undo'),
+  hint: $('hint'),
   reset: $('reset'),
+  help: $('help'),
+  helpOpen: $('help-open'),
 };
 
 const params = new URLSearchParams(location.search);
@@ -32,6 +46,8 @@ const level = dailyLevel(date, WORDS);
 
 let game = createGame(level);
 let selected = null; // выбранная линия сгиба (номер) или null
+let hint = null; // сгиб, который подсказали, или null
+let message = null; // разовое сообщение вместо обычной подсказки внизу
 let animating = false;
 
 // ---------- помощники ----------
@@ -72,6 +88,8 @@ function boardShift({ state, origin }, cell) {
   return (ui.table.clientWidth - state.w * cell) / 2 - origin.x * cell;
 }
 
+const isMoving = (x, move) => (move.from === 'start' ? x < move.at : x >= move.at);
+
 // ---------- отрисовка ----------
 
 function render({ instant = false } = {}) {
@@ -82,10 +100,9 @@ function render({ instant = false } = {}) {
   const entry = currentEntry(game);
   const { state, origin } = entry;
   const status = gameStatus(game);
-  const shift = boardShift(entry, cell);
 
   ui.board.classList.toggle('instant', instant);
-  ui.board.style.transform = `translateX(${shift}px)`;
+  ui.board.style.transform = `translateX(${boardShift(entry, cell)}px)`;
 
   const tops = visibleColors(state, level);
   const bottoms = bottomColors(state, level);
@@ -93,10 +110,9 @@ function render({ instant = false } = {}) {
   const nodes = [];
 
   for (let x = 0; x < state.w; x++) {
-    const left = `${(origin.x + x) * cell}px`;
-
     const paper = el('div', `cell c${tops[x]}`);
-    paper.style.left = left;
+    paper.style.left = `${(origin.x + x) * cell}px`;
+    paper.style.setProperty('--back', `var(--c${bottoms[x]})`);
     paper.dataset.x = x;
     paper.dataset.layers = Math.min(state.stacks[x].length, 4);
     if (status === 'solved') {
@@ -106,20 +122,20 @@ function render({ instant = false } = {}) {
       letter.style.setProperty('--i', x);
       paper.append(letter);
     }
-
-    const under = el('div', `under c${bottoms[x]}`);
-    under.style.left = left;
-    under.dataset.x = x;
-    nodes.push(paper, under);
+    nodes.push(paper);
   }
 
   if (status === 'playing' && !animating) {
     for (let at = 1; at < state.w; at++) {
-      const crease = el('button', at === selected ? 'crease selected' : 'crease', { type: 'button' });
+      let className = 'crease';
+      if (at === selected) className += ' selected';
+      else if (hint && hint.at === at) className += ' hinted';
+      const crease = el('button', className, { type: 'button' });
       crease.style.left = `${(origin.x + at) * cell}px`;
       crease.setAttribute('aria-label', `Линия сгиба после ${at}-й клетки`);
       crease.addEventListener('click', () => {
         selected = selected === at ? null : at;
+        message = null;
         render();
       });
       nodes.push(crease);
@@ -132,37 +148,52 @@ function render({ instant = false } = {}) {
     ui.board.classList.remove('instant');
   }
 
-  renderArrows(shift, cell, origin, status);
+  renderChoices(status);
   renderTarget(cell, status === 'solved');
   renderFolds();
   renderStatus(status);
 
-  const locked = animating || status === 'solved' || foldsUsed(game) === 0;
-  ui.undo.disabled = locked;
-  ui.reset.disabled = locked;
+  const locked = animating || status === 'solved';
+  ui.undo.disabled = locked || foldsUsed(game) === 0;
+  ui.reset.disabled = locked || foldsUsed(game) === 0;
+  ui.hint.disabled = locked;
 }
 
-// Две стрелки над выбранной линией: каждая стоит над той частью, которая поедет.
-function renderArrows(shift, cell, origin, status) {
+// Две кнопки «какую часть загнуть» с мини-превью того, что получится сверху.
+function renderChoices(status) {
   if (selected === null || status !== 'playing' || animating) {
-    ui.arrows.replaceChildren();
+    ui.choices.replaceChildren();
     return;
   }
-  const at = selected;
-  const creaseX = shift + (origin.x + at) * cell;
-  const groupLeft = Math.max(0, Math.min(ui.table.clientWidth - 104, creaseX - 52));
+  const { state } = currentEntry(game);
+  const options = [
+    { from: 'start', title: 'Левую часть →' },
+    { from: 'end', title: '← Правую часть' },
+  ];
+  ui.choices.replaceChildren(
+    ...options.map(({ from, title }) => {
+      const move = { axis: 'x', at: selected, from };
+      const button = el('button', 'choice', { type: 'button' });
+      if (hint && hint.at === move.at && hint.from === from) button.classList.add('hinted');
 
-  const toRight = el('button', 'arrow', { type: 'button', textContent: '→' });
-  toRight.style.left = `${groupLeft}px`;
-  toRight.setAttribute('aria-label', 'Загнуть левую часть направо');
-  toRight.addEventListener('click', () => doFold({ axis: 'x', at, from: 'start' }));
+      const preview = el('span', 'preview');
+      preview.append(...visibleColors(fold(state, move), level).map((c) => el('i', `c${c}`)));
+      button.append(el("span", "", { textContent: title }), el("small", "", { textContent: "загнуть — сверху будет:" }), preview);
 
-  const toLeft = el('button', 'arrow', { type: 'button', textContent: '←' });
-  toLeft.style.left = `${groupLeft + 58}px`;
-  toLeft.setAttribute('aria-label', 'Загнуть правую часть налево');
-  toLeft.addEventListener('click', () => doFold({ axis: 'x', at, from: 'end' }));
-
-  ui.arrows.replaceChildren(toRight, toLeft);
+      // Показать на бумаге, какая часть поедет.
+      const mark = (on) => {
+        for (const node of ui.board.querySelectorAll('.cell')) {
+          node.classList.toggle('moving', on && isMoving(Number(node.dataset.x), move));
+        }
+      };
+      button.addEventListener('pointerenter', () => mark(true));
+      button.addEventListener('pointerleave', () => mark(false));
+      button.addEventListener('focus', () => mark(true));
+      button.addEventListener('blur', () => mark(false));
+      button.addEventListener('click', () => doFold(move));
+      return button;
+    }),
+  );
 }
 
 function renderTarget(cell, done) {
@@ -188,10 +219,12 @@ function renderFolds(g = game) {
 function renderStatus(status, g = game) {
   if (status === 'solved') {
     ui.status.replaceChildren('Складно! Слово дня:', el('span', 'word', { textContent: level.word }));
+  } else if (message) {
+    ui.status.textContent = message;
   } else if (status === 'stuck') {
-    ui.status.textContent = 'Так не сложится. Отмени сгиб или начни заново.';
+    ui.status.textContent = 'Так не сложится. Отмени сгиб или нажми «Подсказка».';
   } else if (selected !== null) {
-    ui.status.textContent = 'Куда загнуть? Стрелка стоит над частью, которая перевернётся.';
+    ui.status.textContent = 'Выбери, какую часть перевернуть.';
   } else if (foldsUsed(g) === 0) {
     ui.status.textContent = `Коснись линии между клетками. Нужно ровно ${level.folds} ${plural(level.folds)}.`;
   } else {
@@ -207,14 +240,17 @@ function doFold(move) {
   const before = currentEntry(game);
   const next = playFold(game, move);
   selected = null;
+  hint = null;
+  message = null;
   if (next === game) {
     render();
     return;
   }
   animating = true;
-  ui.arrows.replaceChildren();
+  ui.choices.replaceChildren();
   ui.undo.disabled = true;
   ui.reset.disabled = true;
+  ui.hint.disabled = true;
   renderFolds(next);
   // Победу объявляем после анимации, когда проступят буквы.
   if (gameStatus(next) !== 'solved') renderStatus(gameStatus(next), next);
@@ -230,19 +266,15 @@ function doFold(move) {
 // на 180° вокруг линии сгиба и ложится обратной стороной вверх — ровно как
 // окажется в новом состоянии. Одновременно стол съезжает, чтобы лист был по центру.
 function animateFold(before, move, after, done) {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    done();
-    return;
-  }
   const cell = cellSize();
   const { state, origin } = before;
   const fromStart = move.from === 'start';
   const moving = [];
-  for (let x = 0; x < state.w; x++) if (fromStart ? x < move.at : x >= move.at) moving.push(x);
+  for (let x = 0; x < state.w; x++) if (isMoving(x, move)) moving.push(x);
 
   const tops = visibleColors(state, level);
   const bottoms = bottomColors(state, level);
-  for (const node of ui.board.querySelectorAll('.cell, .under')) {
+  for (const node of ui.board.querySelectorAll('.cell')) {
     if (moving.includes(Number(node.dataset.x))) node.classList.add('lifted');
   }
   for (const node of ui.board.querySelectorAll('.crease')) node.remove();
@@ -254,16 +286,18 @@ function animateFold(before, move, after, done) {
   moving.forEach((x, i) => {
     const card = el('div', 'card');
     card.style.left = `${i * cell}px`;
-    card.append(el('div', `face c${tops[x]}`), el('div', `face back c${bottoms[x]}`));
+    const front = el('div', `face front c${tops[x]}`);
+    front.style.setProperty('--back', `var(--c${bottoms[x]})`);
+    card.append(front, el('div', `face back c${bottoms[x]}`));
     flap.append(card);
   });
 
   ui.board.style.perspectiveOrigin = `${(origin.x + move.at) * cell}px 50%`;
   ui.board.append(flap);
   flap.getBoundingClientRect(); // зафиксировать начальное положение, чтобы сработал переход
-  ui.board.style.transform = `translateX(${boardShift(after, cell)}px)`;
   requestAnimationFrame(() => {
     flap.style.transform = `rotateY(${fromStart ? 180 : -180}deg)`;
+    ui.board.style.transform = `translateX(${boardShift(after, cell)}px)`;
   });
 
   let finished = false;
@@ -273,8 +307,10 @@ function animateFold(before, move, after, done) {
     flap.remove();
     done();
   };
-  flap.addEventListener('transitionend', finish);
-  setTimeout(finish, 900); // если transitionend не придёт
+  flap.addEventListener('transitionend', (event) => {
+    if (event.target === flap) finish();
+  });
+  setTimeout(finish, 1000); // если transitionend не придёт
 }
 
 // ---------- события ----------
@@ -282,6 +318,8 @@ function animateFold(before, move, after, done) {
 ui.undo.addEventListener('click', () => {
   if (animating) return;
   selected = null;
+  hint = null;
+  message = null;
   game = undo(game);
   render();
 });
@@ -289,13 +327,33 @@ ui.undo.addEventListener('click', () => {
 ui.reset.addEventListener('click', () => {
   if (animating) return;
   selected = null;
+  hint = null;
+  message = null;
   game = restart(game);
   render();
 });
 
-// Тап мимо линии — снять выбор.
-ui.table.addEventListener('click', (event) => {
-  if (event.target.closest('.crease, .arrow') || selected === null) return;
+ui.hint.addEventListener('click', () => {
+  if (animating) return;
+  const move = hintMove(game);
+  if (move) {
+    hint = move;
+    selected = move.at;
+    message = 'Подсказка: этот сгиб и подсвеченная часть.';
+  } else {
+    hint = null;
+    selected = null;
+    message = 'Отсюда уже не сложить — отмени сгиб или начни заново.';
+  }
+  render();
+});
+
+ui.helpOpen.addEventListener('click', () => ui.help.showModal());
+
+// Тап мимо линии и кнопок — снять выбор.
+document.addEventListener('click', (event) => {
+  if (selected === null || animating) return;
+  if (event.target.closest('.crease, .choice, .btn, .help-btn, dialog')) return;
   selected = null;
   render();
 });
@@ -317,6 +375,16 @@ ui.meta.textContent = new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: '
 for (const move of parseMoves(params.get('moves'))) game = playFold(game, move);
 render({ instant: true });
 
+// «Как играть» — сам при первом заходе.
+try {
+  if (!params.has('moves') && !params.has('demo') && !localStorage.getItem('skladno:help-seen')) {
+    ui.help.showModal();
+    localStorage.setItem('skladno:help-seen', '1');
+  }
+} catch {
+  // localStorage недоступен (приватный режим) — просто не показываем повторно
+}
+
 const demo = parseMoves(params.get('demo'));
 if (demo.length > 0) runDemo(demo);
 
@@ -328,6 +396,6 @@ async function runDemo(moves) {
     render();
     await wait(500);
     doFold(move);
-    await wait(1000);
+    await wait(1100);
   }
 }
