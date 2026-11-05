@@ -2,18 +2,22 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import {
+  apply,
   applyMoves,
   createSheet,
   faceId,
+  flipSheet,
   fold,
+  layerCode,
   minFolds,
+  physicalKey,
   possibleMoves,
   stateKey,
   topLayers,
 } from '../src/fold.js';
 import { mulberry32, pick } from '../src/rng.js';
 
-const L = (cell, flipped = false) => ({ cell, flipped });
+const L = (cell, flipped = false, turned = false) => ({ cell, flipped, turned });
 
 describe('createSheet', () => {
   test('каждая клетка лежит лицом вверх в своей позиции', () => {
@@ -76,8 +80,9 @@ describe('fold листа 2D', () => {
     //  0 1          2 3  (сверху 0' 1')
     //  ---    →
     //  2 3
+    // при сгибе по горизонтальной линии рисунок оборота оказывается вверх ногами
     const s = fold(createSheet(2, 2), { axis: 'y', at: 1, from: 'start' });
-    assert.deepEqual(s, { w: 2, h: 1, stacks: [[L(2), L(0, true)], [L(3), L(1, true)]] });
+    assert.deepEqual(s, { w: 2, h: 1, stacks: [[L(2), L(0, true, true)], [L(3), L(1, true, true)]] });
   });
 
   test('вертикальный сгиб складывает каждую строку', () => {
@@ -144,4 +149,66 @@ test('minFolds', () => {
   assert.equal(minFolds(5, 2), 2); // 5 → 3 → 2
   assert.equal(minFolds(8, 1), 3); // 8 → 4 → 2 → 1
   assert.equal(minFolds(9, 4), 2); // 9 → 5 → 3
+});
+
+describe('переворот листа и поворот рисунка', () => {
+  test('flipSheet зеркалит столбцы, переворачивает стопки и стороны', () => {
+    const s = fold(createSheet(3, 1), { axis: 'x', at: 1, from: 'start' });
+    // [1, 0'] [2]  →  [2'] [0, 1']
+    assert.deepEqual(flipSheet(s), { w: 2, h: 1, stacks: [[L(2, true)], [L(0), L(1, true)]] });
+  });
+
+  test('двойной переворот — исходный лист, а physicalKey у листа и переворота общий', () => {
+    const s = fold(createSheet(3, 2), { axis: 'y', at: 1, from: 'end' });
+    assert.deepEqual(flipSheet(flipSheet(s)), s);
+    assert.equal(physicalKey(s), physicalKey(flipSheet(s)));
+    assert.notEqual(stateKey(s), stateKey(flipSheet(s)));
+  });
+
+  test('apply: сгиб или переворот', () => {
+    const s = createSheet(2, 2);
+    assert.deepEqual(apply(s, { flip: true }), flipSheet(s));
+    assert.deepEqual(apply(s, { axis: 'x', at: 1, from: 'end' }), fold(s, { axis: 'x', at: 1, from: 'end' }));
+  });
+
+  test('flipped и turned совпадают с настоящим поворотом бумаги', () => {
+    // Независимо от модели следим за каждой клеткой как за кусочком бумаги:
+    // n — куда смотрит лицо (+1 вверх), down — куда смотрит «низ» рисунка по оси y.
+    // Сгиб по вертикальной линии и переворот листа отражают x: меняется только n.
+    // Сгиб по горизонтальной линии отражает y: меняются n и down.
+    // Оборот нарисован так, как его видно после переворота слева направо,
+    // поэтому рисунок вверх ногами ровно тогда, когда down < 0.
+    const rand = mulberry32(7);
+    for (let round = 0; round < 100; round++) {
+      let s = createSheet(1 + Math.floor(rand() * 5), 1 + Math.floor(rand() * 5));
+      const frames = Array.from({ length: s.w * s.h }, () => ({ n: 1, down: 1 }));
+      for (let step = 0; step < 6; step++) {
+        const moves = possibleMoves(s);
+        const action = moves.length === 0 || rand() < 0.25 ? { flip: true } : pick(rand, moves);
+        const moved = new Set();
+        s.stacks.forEach((stack, i) => {
+          const x = i % s.w;
+          const y = Math.floor(i / s.w);
+          const c = action.flip ? 0 : action.axis === 'x' ? x : y;
+          const isMoving = action.flip || (action.from === 'start' ? c < action.at : c >= action.at);
+          if (isMoving) for (const layer of stack) moved.add(layer.cell);
+        });
+        for (const cell of moved) {
+          frames[cell].n *= -1;
+          if (!action.flip && action.axis === 'y') frames[cell].down *= -1;
+        }
+        s = apply(s, action);
+        for (const layer of s.stacks.flat()) {
+          assert.equal(layer.flipped, frames[layer.cell].n < 0);
+          assert.equal(layer.turned, frames[layer.cell].down < 0);
+        }
+      }
+    }
+  });
+
+  test('layerCode различает поворот', () => {
+    assert.equal(layerCode(L(3)), 12);
+    assert.equal(layerCode(L(3, true)), 14);
+    assert.equal(layerCode(L(3, true, true)), 15);
+  });
 });

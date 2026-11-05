@@ -2,62 +2,59 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { applyMoves, createSheet } from '../src/fold.js';
-import { generateLevel, WHITE } from '../src/generator.js';
-import { isSolved, revealedLetters } from '../src/level.js';
+import { generateLevel } from '../src/generator.js';
+import { isSolved } from '../src/level.js';
 import { mulberry32 } from '../src/rng.js';
 import { solve } from '../src/solver.js';
 
 describe('generateLevel', () => {
   const configs = [
-    { word: 'ЧАЙ', length: 5, folds: 2, colors: 3, twoSided: false },
-    { word: 'КОТИК', length: 8, folds: 2, colors: 3, twoSided: false },
-    { word: 'МОРЕ', length: 7, folds: 2, colors: 4, twoSided: true },
-    { word: 'ПЛЕД', length: 8, folds: 3, colors: 3, twoSided: true },
-    { word: 'ОБНИМУ', length: 11, folds: 4, colors: 4, twoSided: true },
+    { w: 3, h: 3, targetW: 2, targetH: 2, folds: 2, decoys: 2, flips: 0 },
+    { w: 4, h: 3, targetW: 2, targetH: 2, folds: 3, decoys: 3, flips: 0 },
+    { w: 4, h: 4, targetW: 2, targetH: 2, folds: 3, decoys: 4, flips: 1 },
+    { w: 5, h: 4, targetW: 3, targetH: 2, folds: 3, decoys: 5, flips: 0.5 },
+    { w: 6, h: 1, targetW: 3, targetH: 1, folds: 2, decoys: 2, flips: 0.5 },
   ];
 
   for (const config of configs) {
-    test(`${config.word}: решается ровно за ${config.folds} сгиба и открывает слово`, () => {
-      for (let seed = 0; seed < 30; seed++) {
+    const name = `${config.w}×${config.h} → ${config.targetW}×${config.targetH}, ${config.folds} сгиба`;
+    test(`${name}: решается ровно за столько сгибов и единственным способом`, () => {
+      for (let seed = 0; seed < 15; seed++) {
         const level = generateLevel(mulberry32(seed), config);
-        assert.equal(level.w, config.length);
-        assert.equal(level.faces.length, 2 * config.length);
-        assert.equal(level.solution.length, config.folds);
+        assert.equal(level.faces.length, 2 * config.w * config.h);
+        assert.equal(level.solution.filter((a) => !a.flip).length, config.folds);
+        if (config.flips === 0) assert.ok(level.solution.every((a) => !a.flip), 'переворот не нужен');
 
-        const folded = applyMoves(createSheet(level.w), level.solution);
-        assert.equal(isSolved(folded, level), true);
-        assert.equal(revealedLetters(folded, level), config.word);
-
+        assert.equal(isSolved(applyMoves(createSheet(level.w, level.h), level.solution), level), true);
         const check = solve(level);
         assert.equal(check.minDepth, config.folds, 'есть решение короче');
-        assert.equal(check.arrangements, 1, 'узор собирается не тем словом');
+        assert.equal(check.arrangements, 1, 'картинка собирается не одним способом');
 
-        for (const [i, face] of level.faces.entries()) {
-          const isBack = i % 2 === 1;
-          if (isBack && !config.twoSided) assert.equal(face.color, WHITE);
-          else assert.ok(face.color >= 1 && face.color <= config.colors);
-        }
+        const printed = level.faces.filter(Boolean);
+        const pieces = config.targetW * config.targetH;
+        assert.ok(printed.length >= pieces && printed.length <= pieces + config.decoys);
+        for (let p = 0; p < pieces; p++) assert.ok(printed.some((f) => f.piece === p), `нет кусочка ${p}`);
       }
     });
   }
 
+  test('flips: 1 — без переворота не решить', () => {
+    for (let seed = 0; seed < 10; seed++) {
+      const level = generateLevel(mulberry32(seed), configs[2]);
+      assert.equal(solve(level).solution.some((a) => a.flip), true);
+    }
+  });
+
   test('один seed — один уровень', () => {
-    const config = configs[3];
-    assert.deepEqual(generateLevel(mulberry32(7), config), generateLevel(mulberry32(7), config));
+    assert.deepEqual(generateLevel(mulberry32(7), configs[3]), generateLevel(mulberry32(7), configs[3]));
   });
 
   test('столько сгибов не бывает', () => {
-    // 6 → 5: убрать одну клетку можно только одним сгибом
-    assert.throws(
-      () => generateLevel(mulberry32(1), { word: 'КОТИК', length: 6, folds: 2, colors: 3, twoSided: true }),
-      RangeError,
-    );
+    // 3×3 → 2×2: по одному сгибу на каждую ось, за один сгиб не успеть
+    assert.throws(() => generateLevel(mulberry32(1), { ...configs[0], folds: 1 }), RangeError);
   });
 
-  test('полоска должна быть длиннее слова', () => {
-    assert.throws(
-      () => generateLevel(mulberry32(1), { word: 'ЛУНА', length: 4, folds: 1, colors: 3, twoSided: true }),
-      RangeError,
-    );
+  test('картинка больше листа', () => {
+    assert.throws(() => generateLevel(mulberry32(1), { ...configs[0], targetW: 4 }), RangeError);
   });
 });

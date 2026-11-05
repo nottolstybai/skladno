@@ -1,8 +1,14 @@
 // Модель сгибания листа бумаги.
 //
 // Лист — сетка w×h позиций. В каждой позиции лежит стопка слоёв (снизу вверх).
-// Слой — исходная клетка развёрнутого листа и сторона, которой она смотрит вверх:
-//   { cell: номер клетки (y * w + x в развёрнутом листе), flipped: true — вверху изнанка }
+// Слой — исходная клетка развёрнутого листа и как она сейчас лежит:
+//   { cell:    номер клетки (y * w + x в развёрнутом листе),
+//     flipped: true — вверху изнанка,
+//     turned:  true — рисунок на верхней грани повёрнут на 180° }
+//
+// Рисунок изнанки задан так, как его видно, если перевернуть лист слева направо
+// (как страницу). Тогда сгиб по вертикальной линии показывает изнанку ровно,
+// а сгиб по горизонтальной — вверх ногами: turned меняют только сгибы по оси y.
 //
 // Полоска — это просто лист высотой 1.
 //
@@ -20,7 +26,7 @@ export function createSheet(w, h = 1) {
     throw new RangeError(`bad sheet size ${w}×${h}`);
   }
   const stacks = [];
-  for (let cell = 0; cell < w * h; cell++) stacks.push([{ cell, flipped: false }]);
+  for (let cell = 0; cell < w * h; cell++) stacks.push([{ cell, flipped: false, turned: false }]);
   return { w, h, stacks };
 }
 
@@ -60,7 +66,8 @@ export function fold(state, move) {
           for (const layer of src) dst.push(layer);
         } else {
           for (let i = src.length - 1; i >= 0; i--) {
-            dst.push({ cell: src[i].cell, flipped: !src[i].flipped });
+            const { cell, flipped, turned } = src[i];
+            dst.push({ cell, flipped: !flipped, turned: axis === 'y' ? !turned : turned });
           }
         }
       }
@@ -69,8 +76,29 @@ export function fold(state, move) {
   return { w, h, stacks };
 }
 
-export function applyMoves(state, moves) {
-  return moves.reduce((s, move) => fold(s, move), state);
+// Перевернуть весь лист слева направо, как страницу. Это не сгиб: размер тот же,
+// стопки переворачиваются, столбцы идут в обратном порядке.
+export function flipSheet(state) {
+  const { w, h } = state;
+  const stacks = new Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const src = state.stacks[y * w + x];
+      const dst = [];
+      for (let i = src.length - 1; i >= 0; i--) dst.push({ ...src[i], flipped: !src[i].flipped });
+      stacks[y * w + (w - 1 - x)] = dst;
+    }
+  }
+  return { w, h, stacks };
+}
+
+// Действие — сгиб { axis, at, from } или переворот листа { flip: true }.
+export function apply(state, action) {
+  return action.flip ? flipSheet(state) : fold(state, action);
+}
+
+export function applyMoves(state, actions) {
+  return actions.reduce(apply, state);
 }
 
 export function possibleMoves(state) {
@@ -100,7 +128,19 @@ export function faceId(layer) {
   return layer.cell * 2 + (layer.flipped ? 1 : 0);
 }
 
+// Как выглядит слой сверху: грань и поворот рисунка на ней.
+export function layerCode(layer) {
+  return faceId(layer) * 2 + (layer.turned ? 1 : 0);
+}
+
 // Строковый ключ состояния — чтобы решатель не перебирал одно и то же дважды.
 export function stateKey(state) {
-  return `${state.w}x${state.h}:` + state.stacks.map((s) => s.map(faceId).join(',')).join('|');
+  return `${state.w}x${state.h}:` + state.stacks.map((s) => s.map(layerCode).join(',')).join('|');
+}
+
+// Ключ, одинаковый для листа и его переворота: это одно и то же положение бумаги.
+export function physicalKey(state) {
+  const a = stateKey(state);
+  const b = stateKey(flipSheet(state));
+  return a < b ? a : b;
 }

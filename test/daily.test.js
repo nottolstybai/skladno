@@ -9,12 +9,14 @@ import {
   difficultyFor,
   entryFor,
   generateWithFallback,
-  stripLength,
+  parseDateKey,
   wordFor,
 } from '../src/daily.js';
 import { applyMoves, createSheet } from '../src/fold.js';
-import { revealedLetters } from '../src/level.js';
-import { mulberry32, hashString } from '../src/rng.js';
+import { isSolved } from '../src/level.js';
+import { PAPERS, SCENE_NAMES } from '../src/picture.js';
+import { hashString, mulberry32 } from '../src/rng.js';
+import { solve } from '../src/solver.js';
 import { WORDS } from '../src/words.js';
 
 const day = (y, m, d) => new Date(y, m - 1, d, 12);
@@ -29,9 +31,13 @@ test('rng детерминирован', () => {
   assert.ok(seqA.every((x) => x >= 0 && x < 1));
 });
 
-test('dateKey по местной дате с нулями', () => {
+test('dateKey и parseDateKey по местной дате', () => {
   assert.equal(dateKey(day(2026, 11, 5)), '2026-11-05');
   assert.equal(dateKey(day(2027, 1, 9)), '2027-01-09');
+  assert.equal(dateKey(parseDateKey('2027-03-28')), '2027-03-28');
+  assert.equal(parseDateKey('2027-02-30'), null);
+  assert.equal(parseDateKey('вчера'), null);
+  assert.equal(parseDateKey(null), null);
 });
 
 test('dayNumber считает от 1 ноября 2026', () => {
@@ -43,47 +49,52 @@ test('dayNumber считает от 1 ноября 2026', () => {
   assert.equal(dayNumber(day(2027, 3, 29)) - dayNumber(day(2027, 3, 28)), 1);
 });
 
-test('сложность по дням недели осуществима', () => {
+test('сложность по дням недели', () => {
   assert.equal(DIFFICULTY.length, 7);
-  for (const d of DIFFICULTY) {
-    // каждый сгиб убирает хотя бы клетку, а слова — от 3 букв
-    assert.ok(d.folds <= stripLength('КОТ', d) - 3, `${d.name}: сгибов больше, чем лишних клеток`);
-  }
-  assert.equal(stripLength('ЛУНА', { double: true }), 8);
-  assert.equal(stripLength('ЛУНА', { extra: 3 }), 7);
   assert.equal(difficultyFor(day(2026, 11, 2)).name, 'понедельник');
   assert.equal(difficultyFor(day(2026, 11, 8)).name, 'воскресенье');
+  for (const d of DIFFICULTY) assert.ok(d.targetW <= d.w && d.targetH <= d.h, d.name);
 });
 
-test('wordFor идёт по списку по кругу', () => {
-  const words = ['РАЗ', 'ДВА', 'ТРИ'];
-  assert.equal(wordFor(day(2026, 11, 1), words), 'РАЗ');
-  assert.equal(wordFor(day(2026, 11, 3), words), 'ТРИ');
-  assert.equal(wordFor(day(2026, 11, 4), words), 'РАЗ');
-  assert.equal(wordFor(day(2026, 10, 31), words), 'ТРИ');
-});
+describe('слова', () => {
+  test('идут по списку по кругу', () => {
+    const words = ['РАЗ', 'ДВА', 'ТРИ'];
+    assert.equal(wordFor(day(2026, 11, 1), words), 'РАЗ');
+    assert.equal(wordFor(day(2026, 11, 3), words), 'ТРИ');
+    assert.equal(wordFor(day(2026, 11, 4), words), 'РАЗ');
+    assert.equal(wordFor(day(2026, 10, 31), words), 'ТРИ');
+  });
 
-test('все слова из списка подходят', () => {
-  assert.ok(WORDS.length > 0);
-  for (const entry of WORDS) {
-    const word = typeof entry === 'string' ? entry : entry.word;
-    assert.match(word, /^[А-ЯЁ]{3,6}$/u);
-  }
-});
+  test('слово может быть с запиской', () => {
+    const words = ['РАЗ', { word: 'ДВА', note: 'помнишь?' }];
+    assert.deepEqual(entryFor(day(2026, 11, 1), words), { word: 'РАЗ', note: '', date: null });
+    assert.deepEqual(entryFor(day(2026, 11, 2), words), { word: 'ДВА', note: 'помнишь?', date: null });
+  });
 
-test('слово может быть с запиской', () => {
-  const words = ['РАЗ', { word: 'ДВА', note: 'помнишь?' }];
-  assert.deepEqual(entryFor(day(2026, 11, 1), words), { word: 'РАЗ', note: '' });
-  assert.deepEqual(entryFor(day(2026, 11, 2), words), { word: 'ДВА', note: 'помнишь?' });
-  assert.equal(wordFor(day(2026, 11, 2), words), 'ДВА');
+  test('слово с датой выпадает ровно в свой день и не сбивает круг', () => {
+    const words = ['РАЗ', { word: 'ТОРТ', note: 'С днём рождения!', date: '2026-11-02' }, 'ДВА'];
+    assert.equal(wordFor(day(2026, 11, 1), words), 'РАЗ');
+    assert.deepEqual(entryFor(day(2026, 11, 2), words), { word: 'ТОРТ', note: 'С днём рождения!', date: '2026-11-02' });
+    // круг считается по номеру дня, как будто особого слова нет
+    assert.equal(wordFor(day(2026, 11, 3), words), 'РАЗ');
+    assert.equal(wordFor(day(2026, 11, 4), words), 'ДВА');
+  });
+
+  test('все слова из списка подходят', () => {
+    assert.ok(WORDS.length > 0);
+    for (const entry of WORDS) {
+      const word = typeof entry === 'string' ? entry : entry.word;
+      assert.match(word, /^[А-ЯЁ]{2,12}$/u);
+      if (typeof entry !== 'string' && entry.date) assert.ok(parseDateKey(entry.date), `дата ${entry.date}`);
+    }
+  });
 });
 
 test('generateWithFallback берёт первую сложность, которая получилась', () => {
-  const impossible = { extra: 1, folds: 3, colors: 3, twoSided: true }; // 3 сгиба не уберут всего 1 клетку
-  const easy = { extra: 2, folds: 2, colors: 3, twoSided: true };
-  const level = generateWithFallback(mulberry32(3), 'ЛУНА', [impossible, easy]);
-  assert.equal(level.folds, 2);
-  assert.throws(() => generateWithFallback(mulberry32(3), 'ЛУНА', [impossible]), RangeError);
+  const impossible = { w: 3, h: 3, targetW: 2, targetH: 2, folds: 1 }; // за один сгиб не успеть
+  const easy = { w: 3, h: 3, targetW: 2, targetH: 2, folds: 2 };
+  assert.equal(generateWithFallback(mulberry32(3), [impossible, easy]).folds, 2);
+  assert.throws(() => generateWithFallback(mulberry32(3), [impossible]), RangeError);
 });
 
 describe('dailyLevel', () => {
@@ -91,15 +102,27 @@ describe('dailyLevel', () => {
     assert.deepEqual(dailyLevel(day(2026, 11, 5), WORDS), dailyLevel(new Date(2026, 10, 5, 8), WORDS));
   });
 
-  test('год уровней генерируется, и каждый открывает слово дня', () => {
-    for (const words of [WORDS, ['КОТ'], ['УЛЫБКА']]) {
-      for (let i = 0; i < 365; i++) {
-        const date = new Date(2026, 10, 1 + i, 12);
-        const level = dailyLevel(date, words);
-        const folded = applyMoves(createSheet(level.w), level.solution);
-        assert.equal(revealedLetters(folded, level), wordFor(date, words));
-        assert.equal(level.folds, difficultyFor(date).folds, `${dateKey(date)}: сработала подстраховка`);
-      }
+  test('слово, записка, бумага и картинка', () => {
+    const level = dailyLevel(day(2026, 11, 2), ['раз', { word: 'два', note: 'ура' }]);
+    assert.equal(level.word, 'ДВА');
+    assert.equal(level.note, 'ура');
+    assert.ok(PAPERS.includes(level.paper));
+    assert.ok(Number.isInteger(level.picture.seed));
+    assert.ok(SCENE_NAMES.includes(level.picture.scene));
+    const tomorrow = dailyLevel(day(2026, 11, 3), WORDS);
+    assert.notEqual(tomorrow.picture.scene, level.picture.scene, 'сцены меняются каждый день');
+  });
+
+  test('полгода уровней: сложность своего дня, решаются ровно и единственным способом', () => {
+    for (let i = 0; i < 182; i++) {
+      const date = new Date(2026, 10, 1 + i, 12);
+      const level = dailyLevel(date, WORDS);
+      const d = difficultyFor(date);
+      assert.deepEqual([level.w, level.h, level.folds], [d.w, d.h, d.folds], `${dateKey(date)}: сработала подстраховка`);
+      assert.equal(isSolved(applyMoves(createSheet(level.w, level.h), level.solution), level), true);
+      const check = solve(level);
+      assert.equal(check.minDepth, level.folds, dateKey(date));
+      assert.equal(check.arrangements, 1, dateKey(date));
     }
   });
 });

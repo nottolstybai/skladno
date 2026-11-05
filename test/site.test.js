@@ -5,29 +5,36 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { applyMoves, createSheet } from '../src/fold.js';
-import { revealedLetters } from '../src/level.js';
+import { isSolved } from '../src/level.js';
+import { drawPicture, SCENE_NAMES } from '../src/picture.js';
+import { mulberry32 } from '../src/rng.js';
 import { solve } from '../src/solver.js';
 import { TUTORIAL } from '../src/tutorial.js';
 import { VERSION } from '../src/version.js';
-import { PRACTICE_WORDS } from '../src/words.js';
 
 test('обучение: каждый шаг решается ровно за свои сгибы, единственным способом', () => {
-  assert.equal(TUTORIAL.length, 3);
+  assert.equal(TUTORIAL.length, 4);
   for (const [i, step] of TUTORIAL.entries()) {
     const { level } = step;
     const check = solve(level);
     assert.equal(check.minDepth, level.folds, `шаг ${i + 1}`);
     assert.equal(check.arrangements, 1, `шаг ${i + 1}`);
-    if (step.crease !== null) assert.equal(level.solution[0].at, step.crease);
-    if (step.side !== null) assert.equal(level.solution[0].from, step.side);
-    const folded = applyMoves(createSheet(level.w), level.solution);
-    assert.equal(revealedLetters(folded, level), level.word);
-    for (const key of ['start', 'selected', 'stuck', 'solved']) assert.ok(step.text[key], `шаг ${i + 1}: ${key}`);
+    assert.equal(isSolved(applyMoves(createSheet(level.w, level.h), level.solution), level), true);
+    for (const key of ['start', 'stuck', 'solved']) assert.ok(step.text[key], `шаг ${i + 1}: ${key}`);
   }
 });
 
-test('слова тренировки подходят', () => {
-  for (const word of PRACTICE_WORDS) assert.match(word, /^[А-ЯЁ]{3,6}$/u);
+test('картинки: все сцены всех размеров рисуются и не повторяются', () => {
+  for (const scene of SCENE_NAMES) {
+    for (const [w, h] of [[2, 2], [3, 2], [3, 3]]) {
+      const a = drawPicture(mulberry32(1), { w, h, scene });
+      assert.equal(a.scene, scene);
+      assert.match(a.svg, new RegExp(`^<svg [^>]*viewBox="0 0 ${w * 100} ${h * 100}"`));
+      assert.ok(!/NaN|undefined|Infinity/.test(a.svg), `${scene} ${w}×${h}`);
+      assert.deepEqual(drawPicture(mulberry32(1), { w, h, scene }), a);
+      assert.notEqual(drawPicture(mulberry32(2), { w, h, scene }).svg, a.svg);
+    }
+  }
 });
 
 test('index.html: у всех файлов одна версия, import map покрывает все модули', () => {
