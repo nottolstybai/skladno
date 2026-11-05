@@ -80,7 +80,6 @@ const ui = {
   board: $('board'),
   folds: $('folds'),
   status: $('status'),
-  choices: $('choices'),
   controls: $('controls'),
   sheet: $('sheet'),
 };
@@ -188,18 +187,29 @@ const isValidAction = (a) =>
     ((a.axis === 'x' || a.axis === 'y') && Number.isInteger(a.at) && (a.from === 'start' || a.from === 'end')));
 
 // ---------- звук ----------
-// Бумага звучит как россыпь мелких щелчков разной силы (хруст) поверх тихого шороха.
-// Такой «хруст» синтезируется один раз и дальше проигрывается через фильтры:
-// пока тянешь — громкость по скорости бумаги, при приземлении — короткий «хрусть»
-// по линии сгиба и мягкий шлепок бумаги о бумагу. Без файлов.
+// Настоящие записи бумаги (страницы книги, Kenney, CC0 — sounds/LICENSE.txt).
+// Грузятся при первом касании, чтобы не тратить трафик, пока звук не нужен.
+//   lift   — бумага приподнялась;   rustle — короткий шорох (линия сгиба перешла на ряд);
+//   fold   — сгиб целиком;          flip   — переворот листа;
+//   land   — бумага легла;          stamp  — печать.
 
+const SOUNDS = ['lift', 'rustle', 'fold', 'flip', 'land', 'stamp'];
 let audio = null;
-let crackle = null;
+const buffers = new Map();
 
 function audioContext() {
   if (!soundOn) return null;
   try {
-    audio ??= new AudioContext();
+    if (!audio) {
+      audio = new AudioContext();
+      for (const name of SOUNDS) {
+        fetch(`sounds/${name}.wav?v=${VERSION}`)
+          .then((response) => response.arrayBuffer())
+          .then((data) => audio.decodeAudioData(data))
+          .then((buffer) => buffers.set(name, buffer))
+          .catch(() => {});
+      }
+    }
     if (audio.state === 'suspended') audio.resume();
     return audio;
   } catch {
@@ -207,129 +217,28 @@ function audioContext() {
   }
 }
 
-function crackleBuffer(ac) {
-  if (crackle) return crackle;
-  const sr = ac.sampleRate;
-  const length = Math.floor(sr * 2);
-  const buffer = ac.createBuffer(1, length, sr);
-  const data = buffer.getChannelData(0);
-  // тихий шорох с «гуляющей» громкостью
-  let hiss = 0;
-  for (let i = 0; i < length; i++) {
-    if (i % 300 === 0) hiss = 0.02 + Math.random() * 0.05;
-    data[i] = (Math.random() * 2 - 1) * hiss;
-  }
-  // хруст: короткие щелчки сгустками — то часто, то реже; в основном тихие, изредка громкие
-  for (let i = 0; i < length; ) {
-    const dense = Math.random() < 0.25;
-    i += 1 + Math.floor((-Math.log(1 - Math.random()) * sr) / (dense ? 3000 : 600));
-    const amp = Math.random() ** 3;
-    const decay = 6 + Math.random() * 50; // 0,1–1 мс
-    for (let k = 0; k < decay * 5 && i + k < length; k++) {
-      data[i + k] += (Math.random() * 2 - 1) * amp * Math.exp(-k / decay);
-    }
-  }
-  let peak = 0;
-  for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(data[i]));
-  for (let i = 0; i < length; i++) data[i] /= peak * 1.1;
-  crackle = buffer;
-  return buffer;
+// Браузер разрешает звук только после касания или нажатия клавиши — запускаем звук
+// на первом же касании, чтобы записи успели загрузиться к первому сгибу.
+for (const type of ['pointerdown', 'pointerup', 'keydown']) {
+  document.addEventListener(type, () => audioContext(), { passive: true });
 }
 
-// Голос бумаги: хруст по кругу через полосу частот; громкостью управляет вызывающий.
-function paperVoice(ac, { rate = 1, low = 900, high = 9000 } = {}) {
-  const src = ac.createBufferSource();
-  src.buffer = crackleBuffer(ac);
-  src.loop = true;
-  src.playbackRate.value = rate * (0.9 + Math.random() * 0.2);
-  const hp = ac.createBiquadFilter();
-  hp.type = 'highpass';
-  hp.frequency.value = low;
-  const lp = ac.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = high;
-  const gain = ac.createGain();
-  gain.gain.value = 0;
-  src.connect(hp);
-  hp.connect(lp);
-  lp.connect(gain);
-  gain.connect(ac.destination);
-  src.start(ac.currentTime, Math.random() * 1.8);
-  return { gain: gain.gain, stop: (at) => src.stop(at) };
-}
-
-// Мягкий шлепок: короткий шум через низкие частоты.
-function thud(ac, at, { level = 0.3, freq = 260, length = 0.09 } = {}) {
-  const n = Math.floor(ac.sampleRate * length);
-  const buffer = ac.createBuffer(1, n, ac.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let k = 0; k < n; k++) data[k] = (Math.random() * 2 - 1) * Math.exp(-k / (n / 5));
-  const src = ac.createBufferSource();
-  src.buffer = buffer;
-  const lp = ac.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = freq;
-  const gain = ac.createGain();
-  gain.gain.value = level;
-  src.connect(lp);
-  lp.connect(gain);
-  gain.connect(ac.destination);
-  src.start(at);
-}
-
-// Разовый звук: 'move' — шорох на всё движение, 'land' — бумага легла, 'stamp' — печать.
-function sound(kind, { duration = 0.3, flip = false } = {}) {
+// Проиграть звук: громкость, скорость (чуть разная каждый раз — живее) и задержка в секундах.
+function sound(name, { volume = 0.5, rate = 1, delay = 0 } = {}) {
   const ac = audioContext();
-  if (!ac) return;
+  const buffer = buffers.get(name);
+  if (!ac || !buffer) return;
   try {
-    const now = ac.currentTime;
-    if (kind === 'stamp') {
-      thud(ac, now, { level: 0.9, freq: 170, length: 0.14 });
-      const voice = paperVoice(ac, { rate: 0.8, low: 1500 });
-      voice.gain.setValueAtTime(0.45, now);
-      voice.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-      voice.stop(now + 0.1);
-      return;
-    }
-    if (kind === 'land') {
-      const voice = paperVoice(ac, { rate: 1.25, low: 1800 });
-      voice.gain.setValueAtTime(0.85, now);
-      voice.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-      voice.stop(now + 0.12);
-      thud(ac, now + 0.004, { level: 0.32 });
-      return;
-    }
-    const voice = paperVoice(ac, { rate: flip ? 0.85 : 1, low: flip ? 500 : 900 });
-    const level = flip ? 0.38 : 0.3;
-    const end = now + Math.max(0.15, duration);
-    voice.gain.setValueAtTime(0.0001, now);
-    voice.gain.exponentialRampToValueAtTime(level, now + 0.05);
-    voice.gain.setValueAtTime(level, Math.max(now + 0.06, end - 0.12));
-    voice.gain.exponentialRampToValueAtTime(0.0001, end);
-    voice.stop(end + 0.05);
-    if (flip) thud(ac, end - 0.04, { level: 0.22, freq: 200 });
+    const src = ac.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate * (0.94 + Math.random() * 0.12);
+    const gain = ac.createGain();
+    gain.gain.value = volume;
+    src.connect(gain);
+    gain.connect(ac.destination);
+    src.start(ac.currentTime + delay);
   } catch {
     // без звука
-  }
-}
-
-// Шорох, пока тянешь лист: громкость следует за скоростью бумаги.
-function dragVoice() {
-  const ac = audioContext();
-  if (!ac) return null;
-  try {
-    const voice = paperVoice(ac);
-    return {
-      speed(perMs) {
-        voice.gain.setTargetAtTime(Math.min(0.42, perMs * 0.9), ac.currentTime, 0.03);
-      },
-      stop() {
-        voice.gain.setTargetAtTime(0, ac.currentTime, 0.04);
-        voice.stop(ac.currentTime + 0.3);
-      },
-    };
-  } catch {
-    return null;
   }
 }
 
@@ -354,12 +263,38 @@ function computeView({ state, origin }) {
 
 function applyView(entry, { instant = false } = {}) {
   view = computeView(entry);
+  ui.board.classList.remove('follow');
   ui.board.classList.toggle('instant', instant);
   ui.board.style.transform = `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`;
   if (instant) {
     ui.board.getBoundingClientRect();
     ui.board.classList.remove('instant');
   }
+}
+
+// Вся бумага должна оставаться на столе. Если поднятая часть выходит за край
+// (большой сгиб с нахлёстом), стол плавно отъезжает — только отдаляется, не приближается.
+// box — [x0, y0, x1, y1] в клетках стола.
+function keepInView(box) {
+  const W = ui.table.clientWidth;
+  const H = ui.table.clientHeight;
+  const pad = 8;
+  const { cell, tx, ty } = view;
+  const fits =
+    box[0] * cell + tx >= pad && box[2] * cell + tx <= W - pad && box[1] * cell + ty >= pad && box[3] * cell + ty <= H - pad;
+  if (fits) return;
+  const bw = box[2] - box[0];
+  const bh = box[3] - box[1];
+  const next = Math.min(cell, (W - 2 * pad) / bw, (H - 2 * pad) / bh);
+  view = {
+    ...view,
+    cell: next,
+    scale: next / view.base,
+    tx: (W - bw * next) / 2 - box[0] * next,
+    ty: (H - bh * next) / 2 - box[1] * next,
+  };
+  ui.board.classList.add('follow');
+  ui.board.style.transform = `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`;
 }
 
 // Точка экрана → координаты на текущем листе (в клетках, 0..w по x).
@@ -491,7 +426,6 @@ function render({ instant = false, landed = null, focus = undefined } = {}) {
   renderBoard({ instant, landed });
   renderFolds();
   renderStatus();
-  renderChoices();
   renderControls();
   restoreFocus(focusKey);
 }
@@ -532,13 +466,8 @@ function renderGoal() {
   ui.target.setAttribute('aria-label', `Картинка, которую нужно собрать: ${pictureTitle(picture, { emoji: false })}`);
   ui.goal.replaceChildren(
     el('span', 'meta', { textContent: metaText() }),
-    el('b', '', { textContent: 'Собери картинку' }),
-    el('span', '', {
-      textContent:
-        level.folds === 0
-          ? 'Сгибать не нужно — картинка уже собрана на обороте.'
-          : `Сложи лист ${level.w}×${level.h} до ${tw}×${th} ровно за ${level.folds} ${foldsWord(level.folds)}.`,
-    }),
+    el('b', 'title', { textContent: mode === 'tutorial' ? 'Собери картинку' : pictureTitle(picture, { emoji: false }) }),
+    el('span', 'size', { textContent: level.folds === 0 ? 'без сгибов' : `${level.w}×${level.h} → ${tw}×${th}` }),
   );
 }
 
@@ -562,12 +491,21 @@ function faceNode(layer, className = '') {
 
 const topOf = (stack) => stack[stack.length - 1];
 
+// Кромка стопки: по тонкой линии на каждый лист снизу — видно, сколько слоёв.
+function stackEdge(layers) {
+  const shadows = [];
+  const n = Math.min(layers, 7);
+  for (let k = 1; k < n; k++) shadows.push(`0 ${(k * 1.5).toFixed(1)}px 0 ${k % 2 ? 'var(--edge-a)' : 'var(--edge-b)'}`);
+  if (n > 1) shadows.push(`0 ${((n - 1) * 1.5 + 1).toFixed(1)}px 2px rgb(20 12 4 / 0.3)`);
+  return shadows.join(', ');
+}
+
 function cardNode(state, origin, x, y, base) {
   const stack = state.stacks[y * state.w + x];
   const card = el('div', 'card');
   card.style.left = `${(origin.x + x) * base}px`;
   card.style.top = `${(origin.y + y) * base}px`;
-  card.style.setProperty('--layers', Math.min(stack.length, 6));
+  card.style.boxShadow = stackEdge(stack.length);
   card.dataset.x = x;
   card.dataset.y = y;
   card.append(faceNode(topOf(stack)));
@@ -677,7 +615,9 @@ function renderFolds() {
   const dots = [];
   for (let i = 0; i < level.folds; i++) dots.push(el('i', i < used ? 'used' : ''));
   ui.folds.replaceChildren(...dots);
+  ui.folds.hidden = level.folds === 0;
   ui.folds.setAttribute('aria-label', `Сгибов: ${used} из ${level.folds}`);
+  ui.folds.title = `${level.folds} ${foldsWord(level.folds)}`;
 }
 
 function statusText() {
@@ -686,21 +626,19 @@ function statusText() {
   if (mode === 'tutorial') {
     const { text } = tutorialStep();
     if (status === 'solved') return text.solved;
-    if (status === 'flip') return 'Картинка собрана снизу — переверни лист!';
+    if (status === 'flip') return 'Картинка снизу — переверни лист';
     if (status === 'stuck') return text.stuck;
     return text.start;
   }
-  if (status === 'solved') return isPast() || mode === 'practice' ? 'Собрано!' : 'Собрано! Слово дня — на печати.';
-  if (status === 'flip') return 'Картинка собрана снизу — переверни лист!';
+  if (status === 'solved') return 'Собрано!';
+  if (status === 'flip') return 'Картинка снизу — переверни лист';
   if (status === 'stuck') {
     const atSize = state.w === level.targetW && state.h === level.targetH;
-    return atSize ? 'Лист уже нужного размера, но картинка не та. Отмени сгиб.' : 'Так уже не сложить — отмени сгиб.';
+    return atSize ? 'Картинка не та — отмени сгиб' : 'Так не сложится — отмени сгиб';
   }
-  if (hint?.flip) return 'Подсказка: переверни лист.';
-  if (hint) return 'Подсказка: загни часть со стрелкой по красной линии.';
-  if (foldsUsed(game) === 0) return 'Потяни край листа, чтобы загнуть. Кусочки бывают и на обороте.';
-  const left = foldsLeft(game);
-  return `Осталось ${left} ${foldsWord(left)}.`;
+  if (hint?.flip) return 'Переверни лист';
+  if (hint) return 'Загни по красной линии';
+  return '';
 }
 
 function renderStatus() {
@@ -708,41 +646,12 @@ function renderStatus() {
   ui.status.dataset.tone = gameStatus(game);
 }
 
-// После тапа по линии — две кнопки: какую часть загнуть.
-function renderChoices() {
-  if (!selected || gameStatus(game) !== 'playing' || animating) {
-    ui.choices.replaceChildren();
-    return;
-  }
-  const { axis, at } = selected;
-  const options =
-    axis === 'x'
-      ? [
-          { from: 'end', label: 'Правую часть', icon: '←' },
-          { from: 'start', label: 'Левую часть', icon: '→' },
-        ]
-      : [
-          { from: 'end', label: 'Нижнюю часть', icon: '↑' },
-          { from: 'start', label: 'Верхнюю часть', icon: '↓' },
-        ];
-  ui.choices.replaceChildren(
-    ...options.map(({ from, label, icon }) => {
-      const move = { axis, at, from };
-      const isHinted = hint && sameAction(hint, move);
-      return button(label, () => doFold(move), {
-        className: `choice${isHinted ? ' hinted' : ''}`,
-        focus: `choice-${from}`,
-        icon,
-      });
-    }),
-  );
-}
-
 function renderControls() {
   const status = gameStatus(game);
   const history = game.history.length;
   const nodes = [];
 
+  ui.controls.dataset.mode = '';
   if (mode === 'tutorial' && status === 'solved') {
     const last = tutorialIndex === TUTORIAL.length - 1;
     nodes.push(
@@ -760,6 +669,36 @@ function renderControls() {
     ui.controls.replaceChildren(...nodes);
     return;
   }
+
+  // Выбрана линия — вместо обычных кнопок две: какую часть загнуть, и «отмена выбора».
+  if (selected && status === 'playing' && !animating) {
+    const { axis, at } = selected;
+    const options =
+      axis === 'x'
+        ? [
+            { from: 'end', label: 'Правую', icon: '←' },
+            { from: 'start', label: 'Левую', icon: '→' },
+          ]
+        : [
+            { from: 'end', label: 'Нижнюю', icon: '↑' },
+            { from: 'start', label: 'Верхнюю', icon: '↓' },
+          ];
+    for (const { from, label, icon } of options) {
+      const move = { axis, at, from };
+      const isHinted = hint && sameAction(hint, move);
+      nodes.push(button(label, () => doFold(move), { className: `choice${isHinted ? ' pulse' : ''}`, focus: `choice-${from}`, icon }));
+    }
+    nodes.push(
+      button('Не то', () => {
+        selected = null;
+        render();
+      }, { focus: 'deselect', icon: '✕', className: 'choice' }),
+    );
+    ui.controls.dataset.mode = 'choose';
+    ui.controls.replaceChildren(...nodes);
+    return;
+  }
+  ui.controls.dataset.mode = '';
 
   const undoBtn = button('Отменить', () => undoMove(), { focus: 'undo', icon: '↶', className: status === 'stuck' ? 'pulse' : '' });
   undoBtn.disabled = history === 1 || animating;
@@ -908,6 +847,13 @@ function createFold(entry, spec) {
           if (axis === 'x') Object.assign(shadow.style, { left: `${(offset + first) * base}px`, width: `${(last - first) * base}px` });
           else Object.assign(shadow.style, { top: `${(offset + first) * base}px`, height: `${(last - first) * base}px` });
         }
+        // и камера: поднятая часть при угле больше прямого уже над другой стороной
+        const reach = control.angle > 90 ? [Math.min(0, 2 * control.at - hi), Math.max(size, 2 * control.at - lo)] : [0, size];
+        keepInView(
+          axis === 'x'
+            ? [offset + reach[0], origin.y, offset + reach[1], origin.y + state.h]
+            : [origin.x, offset + reach[0], origin.x + state.w, offset + reach[1]],
+        );
       }
     },
     // Плавно довести до угла (и линии). Длительность — по оставшемуся пути.
@@ -985,10 +931,13 @@ function doFold(move, flap = null) {
   selected = null;
   hint = null;
   animating = true;
-  ui.choices.replaceChildren();
+  renderControls();
   const control = flap ?? buildFlap(entry, move);
-  const ms = control.animateTo(180, move.at, () => {
-    sound('land');
+  // сгиб кнопкой — шорох страницы целиком; после жеста бумага уже поднята — короткий
+  if (flap) sound('rustle', { volume: 0.3 });
+  else sound('fold', { volume: 0.5 });
+  control.animateTo(180, move.at, () => {
+    sound('land', { volume: 0.3 });
     navigator.vibrate?.(8);
     game = playFold(game, move);
     animating = false;
@@ -997,7 +946,6 @@ function doFold(move, flap = null) {
     render({ landed: landedKeys(entry, move) });
     afterMove();
   });
-  sound('move', { duration: ms / 1000 });
 }
 
 function doFlip() {
@@ -1006,9 +954,10 @@ function doFlip() {
   selected = null;
   if (hint?.flip) hint = null;
   animating = true;
-  renderChoices();
+  renderControls();
   const control = buildFlap(entry, { flip: true });
-  const ms = control.animateTo(180, undefined, () => {
+  sound('flip', { volume: 0.55 });
+  control.animateTo(180, undefined, () => {
     game = playFlip(game);
     animating = false;
     control.remove();
@@ -1016,7 +965,6 @@ function doFlip() {
     render();
     afterMove();
   });
-  sound('move', { duration: ms / 1000, flip: true });
 }
 
 function afterMove() {
@@ -1040,14 +988,14 @@ function undoMove({ fast = false, counted = true } = {}) {
     animating = true;
     const control = buildFlap(currentEntry(game), action);
     control.set(180);
-    const ms = control.animateTo(0, undefined, () => {
+    sound(action.flip ? 'flip' : 'rustle', { volume: fast ? 0.2 : 0.35, rate: action.flip ? 1.15 : 1.05 });
+    control.animateTo(0, undefined, () => {
       control.remove();
       animating = false;
       saveDay();
       render();
       resolve();
     }, { duration: fast ? 180 : null });
-    sound('move', { duration: ms / 1000, flip: !!action.flip });
   });
 }
 
@@ -1112,8 +1060,8 @@ ui.table.addEventListener('pointerdown', (event) => {
   const now = performance.now();
   drag = {
     id: event.pointerId, x0: event.clientX, y0: event.clientY, start, axis: null, delta: 0,
-    side: null, fold: null, voice: null, last: { x: event.clientX, y: event.clientY, t: now }, v: 0,
-    sound: { angle: 0, at: 0, t: now },
+    side: null, fold: null, last: { x: event.clientX, y: event.clientY, t: now }, v: 0,
+    cell: view.cell, row: null, rustleAt: 0,
   };
   try {
     ui.table.setPointerCapture(event.pointerId);
@@ -1131,8 +1079,8 @@ ui.table.addEventListener('pointermove', (event) => {
     drag.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
     selected = null;
     hint = null;
-    ui.choices.replaceChildren();
-    drag.voice = dragVoice();
+    renderControls();
+    sound('lift', { volume: 0.35 });
   }
   const now = performance.now();
   const along = drag.axis === 'x' ? event.clientX - drag.last.x : event.clientY - drag.last.y;
@@ -1140,7 +1088,8 @@ ui.table.addEventListener('pointermove', (event) => {
   if (dt > 0) drag.v = 0.6 * drag.v + 0.4 * (along / dt);
   drag.last = { x: event.clientX, y: event.clientY, t: now };
 
-  drag.delta = (drag.axis === 'x' ? dx : dy) / view.cell;
+  // в клетках на момент нажатия: если стол отъедет, бумага не убежит от пальца
+  drag.delta = (drag.axis === 'x' ? dx : dy) / drag.cell;
   const pose = dragPose(drag);
   // сменилась сторона (палец ушёл за точку нажатия) — бумага там лежит, меняем незаметно
   if (pose.from !== drag.side) {
@@ -1149,19 +1098,44 @@ ui.table.addEventListener('pointermove', (event) => {
     drag.fold = createFold(currentEntry(game), { axis: drag.axis, from: pose.from });
   }
   drag.fold.set(pose.angle, pose.at);
+  showSnap(pose);
 
-  // шорох — по скорости бумаги
-  const ds = drag.sound;
-  const st = Math.max(1, now - ds.t);
-  drag.voice?.speed((Math.abs(pose.angle - ds.angle) / 180 + Math.abs(pose.at - ds.at)) / st * 4);
-  drag.sound = { angle: pose.angle, at: pose.at, t: now };
+  // линия сгиба перешла на следующий ряд — короткий шорох
+  const row = Math.floor(pose.at);
+  if (drag.row !== null && row !== drag.row && now - drag.rustleAt > 110) {
+    sound('rustle', { volume: 0.22, rate: 1.1 });
+    drag.rustleAt = now;
+  }
+  drag.row = row;
 });
+
+// Пока тянешь — красная линия там, где бумага согнётся, если отпустить.
+function showSnap(pose) {
+  let line = ui.board.querySelector('.snap-line');
+  const willFold = pose && pose.snap !== null && pose.pulled >= 0.45;
+  if (!willFold) {
+    line?.remove();
+    return;
+  }
+  if (!line) {
+    line = el('div', 'snap-line');
+    ui.board.append(line);
+  }
+  const { state, origin } = currentEntry(game);
+  const base = view.base;
+  line.classList.toggle('y', drag.axis === 'y');
+  if (drag.axis === 'x') {
+    Object.assign(line.style, { left: `${(origin.x + pose.snap) * base}px`, top: `${origin.y * base}px`, width: '', height: `${state.h * base}px` });
+  } else {
+    Object.assign(line.style, { top: `${(origin.y + pose.snap) * base}px`, left: `${origin.x * base}px`, height: '', width: `${state.w * base}px` });
+  }
+}
 
 function endDrag(event) {
   if (!drag || event.pointerId !== drag.id) return;
   const current = drag;
   drag = null;
-  current.voice?.stop();
+  showSnap(null);
   if (!current.axis) return; // это был тап — его обработает click
   suppressClickUntil = Date.now() + 350;
   const { fold: control } = current;
@@ -1238,7 +1212,7 @@ function stamp(word) {
   node.style.right = `${ui.table.clientWidth - right + width * 0.05}px`;
   node.style.bottom = `${ui.table.clientHeight - bottom + width * 0.06}px`;
   ui.table.append(node);
-  setTimeout(() => sound('stamp'), 260);
+  setTimeout(() => sound('stamp', { volume: 0.7 }), 230);
 }
 
 function stat(value, label) {
@@ -1389,7 +1363,7 @@ function openAlbum() {
     closeButton(),
     el('h2', '', { id: 'sheet-title', textContent: 'Альбом', tabIndex: -1, autofocus: true }),
     el('p', 'album-sub', {
-      textContent: `Собрано ${solvedCount} из ${keys.length}. Пропущенный день можно сыграть — на серию он не влияет.`,
+      textContent: `Собрано ${solvedCount} из ${keys.length} · пропущенный день можно сыграть`,
     }),
     grid,
   );
@@ -1462,7 +1436,7 @@ ui.sound.addEventListener('click', () => {
   soundOn = !soundOn;
   store.set('skladno:sound', soundOn);
   renderTopbar();
-  sound('land');
+  sound('rustle', { volume: 0.4 });
 });
 
 // Тап мимо линии и кнопок — снять выбор линии.

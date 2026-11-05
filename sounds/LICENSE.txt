@@ -1,0 +1,10 @@
+Звуки — из набора «RPG Audio» Kenney Vleugels (https://kenney.nl/assets/rpg-audio),
+лицензия Creative Commons Zero (CC0): http://creativecommons.org/publicdomain/zero/1.0/
+Перекодированы в WAV (моно, 24 кГц), обрезана тишина.
+
+lift.wav   ← bookOpen.ogg
+fold.wav   ← bookFlip2.ogg
+rustle.wav ← bookFlip3.ogg
+flip.wav   ← bookFlip1.ogg
+land.wav   ← bookPlace3.ogg
+stamp.wav  ← bookClose.ogg

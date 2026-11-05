@@ -71,3 +71,8 @@ python3 -m http.server 8000     # и открыть http://localhost:8000
 ```
 
 Репозиторий публичный: всё в `src/words.js` может прочитать кто угодно.
+
+## Благодарности
+
+Звуки бумаги — Kenney, набор «RPG Audio» (CC0), см. `sounds/LICENSE.txt`.
+Шрифты — Zen Antique и Zen Kaku Gothic New (Google Fonts, OFL).

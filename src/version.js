@@ -1,2 +1,2 @@
 // Версия сборки: меняется скриптом scripts/bump.js перед каждым деплоем.
-export const VERSION = '202611052109';
+export const VERSION = '202611052134';

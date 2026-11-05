@@ -37,6 +37,17 @@ test('картинки: все сцены всех размеров рисуют
   }
 });
 
+test('звуки на месте: WAV для каждого имени из main.js', () => {
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const names = JSON.parse(/const SOUNDS = (\[[^\]]*\])/.exec(main)[1].replaceAll("'", '"'));
+  assert.ok(names.length > 0);
+  for (const name of names) {
+    const file = readFileSync(new URL(`../sounds/${name}.wav`, import.meta.url));
+    assert.equal(file.toString('ascii', 0, 4), 'RIFF', name);
+    assert.equal(file.toString('ascii', 8, 12), 'WAVE', name);
+  }
+});
+
 test('index.html: у всех файлов одна версия, import map покрывает все модули', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, new RegExp(`data-version="${VERSION}"`));
