@@ -188,45 +188,148 @@ const isValidAction = (a) =>
     ((a.axis === 'x' || a.axis === 'y') && Number.isInteger(a.at) && (a.from === 'start' || a.from === 'end')));
 
 // ---------- звук ----------
-// Шорох бумаги и удар печати — синтезом, без файлов.
+// Бумага звучит как россыпь мелких щелчков разной силы (хруст) поверх тихого шороха.
+// Такой «хруст» синтезируется один раз и дальше проигрывается через фильтры:
+// пока тянешь — громкость по скорости бумаги, при приземлении — короткий «хрусть»
+// по линии сгиба и мягкий шлепок бумаги о бумагу. Без файлов.
 
 let audio = null;
-function sound(kind) {
-  if (!soundOn) return;
+let crackle = null;
+
+function audioContext() {
+  if (!soundOn) return null;
   try {
     audio ??= new AudioContext();
     if (audio.state === 'suspended') audio.resume();
-    const now = audio.currentTime;
-    const out = audio.createGain();
-    out.connect(audio.destination);
+    return audio;
+  } catch {
+    return null;
+  }
+}
+
+function crackleBuffer(ac) {
+  if (crackle) return crackle;
+  const sr = ac.sampleRate;
+  const length = Math.floor(sr * 2);
+  const buffer = ac.createBuffer(1, length, sr);
+  const data = buffer.getChannelData(0);
+  // тихий шорох с «гуляющей» громкостью
+  let hiss = 0;
+  for (let i = 0; i < length; i++) {
+    if (i % 300 === 0) hiss = 0.02 + Math.random() * 0.05;
+    data[i] = (Math.random() * 2 - 1) * hiss;
+  }
+  // хруст: короткие щелчки сгустками — то часто, то реже; в основном тихие, изредка громкие
+  for (let i = 0; i < length; ) {
+    const dense = Math.random() < 0.25;
+    i += 1 + Math.floor((-Math.log(1 - Math.random()) * sr) / (dense ? 3000 : 600));
+    const amp = Math.random() ** 3;
+    const decay = 6 + Math.random() * 50; // 0,1–1 мс
+    for (let k = 0; k < decay * 5 && i + k < length; k++) {
+      data[i + k] += (Math.random() * 2 - 1) * amp * Math.exp(-k / decay);
+    }
+  }
+  let peak = 0;
+  for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(data[i]));
+  for (let i = 0; i < length; i++) data[i] /= peak * 1.1;
+  crackle = buffer;
+  return buffer;
+}
+
+// Голос бумаги: хруст по кругу через полосу частот; громкостью управляет вызывающий.
+function paperVoice(ac, { rate = 1, low = 900, high = 9000 } = {}) {
+  const src = ac.createBufferSource();
+  src.buffer = crackleBuffer(ac);
+  src.loop = true;
+  src.playbackRate.value = rate * (0.9 + Math.random() * 0.2);
+  const hp = ac.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = low;
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = high;
+  const gain = ac.createGain();
+  gain.gain.value = 0;
+  src.connect(hp);
+  hp.connect(lp);
+  lp.connect(gain);
+  gain.connect(ac.destination);
+  src.start(ac.currentTime, Math.random() * 1.8);
+  return { gain: gain.gain, stop: (at) => src.stop(at) };
+}
+
+// Мягкий шлепок: короткий шум через низкие частоты.
+function thud(ac, at, { level = 0.3, freq = 260, length = 0.09 } = {}) {
+  const n = Math.floor(ac.sampleRate * length);
+  const buffer = ac.createBuffer(1, n, ac.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let k = 0; k < n; k++) data[k] = (Math.random() * 2 - 1) * Math.exp(-k / (n / 5));
+  const src = ac.createBufferSource();
+  src.buffer = buffer;
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = freq;
+  const gain = ac.createGain();
+  gain.gain.value = level;
+  src.connect(lp);
+  lp.connect(gain);
+  gain.connect(ac.destination);
+  src.start(at);
+}
+
+// Разовый звук: 'move' — шорох на всё движение, 'land' — бумага легла, 'stamp' — печать.
+function sound(kind, { duration = 0.3, flip = false } = {}) {
+  const ac = audioContext();
+  if (!ac) return;
+  try {
+    const now = ac.currentTime;
     if (kind === 'stamp') {
-      const osc = audio.createOscillator();
-      osc.frequency.setValueAtTime(140, now);
-      osc.frequency.exponentialRampToValueAtTime(45, now + 0.18);
-      out.gain.setValueAtTime(0.5, now);
-      out.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-      osc.connect(out);
-      osc.start(now);
-      osc.stop(now + 0.26);
+      thud(ac, now, { level: 0.9, freq: 170, length: 0.14 });
+      const voice = paperVoice(ac, { rate: 0.8, low: 1500 });
+      voice.gain.setValueAtTime(0.45, now);
+      voice.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      voice.stop(now + 0.1);
       return;
     }
-    const length = kind === 'flip' ? 0.42 : 0.26;
-    const buffer = audio.createBuffer(1, Math.ceil(audio.sampleRate * length), audio.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) ** 1.5;
-    const noise = audio.createBufferSource();
-    noise.buffer = buffer;
-    const filter = audio.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.Q.value = 0.9;
-    filter.frequency.setValueAtTime(kind === 'land' ? 900 : 2400, now);
-    filter.frequency.exponentialRampToValueAtTime(kind === 'land' ? 300 : 700, now + length);
-    out.gain.setValueAtTime(kind === 'land' ? 0.22 : 0.16, now);
-    noise.connect(filter);
-    filter.connect(out);
-    noise.start(now);
+    if (kind === 'land') {
+      const voice = paperVoice(ac, { rate: 1.25, low: 1800 });
+      voice.gain.setValueAtTime(0.85, now);
+      voice.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      voice.stop(now + 0.12);
+      thud(ac, now + 0.004, { level: 0.32 });
+      return;
+    }
+    const voice = paperVoice(ac, { rate: flip ? 0.85 : 1, low: flip ? 500 : 900 });
+    const level = flip ? 0.38 : 0.3;
+    const end = now + Math.max(0.15, duration);
+    voice.gain.setValueAtTime(0.0001, now);
+    voice.gain.exponentialRampToValueAtTime(level, now + 0.05);
+    voice.gain.setValueAtTime(level, Math.max(now + 0.06, end - 0.12));
+    voice.gain.exponentialRampToValueAtTime(0.0001, end);
+    voice.stop(end + 0.05);
+    if (flip) thud(ac, end - 0.04, { level: 0.22, freq: 200 });
   } catch {
     // без звука
+  }
+}
+
+// Шорох, пока тянешь лист: громкость следует за скоростью бумаги.
+function dragVoice() {
+  const ac = audioContext();
+  if (!ac) return null;
+  try {
+    const voice = paperVoice(ac);
+    return {
+      speed(perMs) {
+        voice.gain.setTargetAtTime(Math.min(0.42, perMs * 0.9), ac.currentTime, 0.03);
+      },
+      stop() {
+        voice.gain.setTargetAtTime(0, ac.currentTime, 0.04);
+        voice.stop(ac.currentTime + 0.3);
+      },
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -675,101 +778,158 @@ function renderControls() {
 }
 
 // ---------- 3D: часть листа поворачивается вокруг линии ----------
-// Перекидываемые клетки собираются в «клапан» — контейнер, который
-// поворачивается вокруг линии сгиба (или вокруг середины листа при перевороте).
-// У каждой клетки две грани: сверху — что видно сейчас, снизу — что будет видно
-// после поворота (берём из состояния после хода).
+// Перекидываемые клетки собираются в «клапан» — контейнер, который поворачивается
+// вокруг линии сгиба (или вокруг середины листа при перевороте). У каждой клетки
+// две грани: сверху — что видно сейчас, снизу — оборот нижнего слоя стопки.
+//
+// Пока тянешь пальцем, линия сгиба может стоять где угодно, даже посреди клетки:
+// тогда клетка режется на две части (clip-path) — одна поднимается, другая лежит.
+// Так загнутая часть растёт плавно, как у настоящей бумаги, а после отпускания
+// линия доезжает до ближайшей линии сетки.
+//
+// spec — { flip: true } или { axis, from }; угол и линию задаёт set(angle, at).
 
-function buildFlap(entry, action) {
+const EDGE = 0.02; // линия не подходит к краю листа ближе этого
+
+function createFold(entry, spec) {
   const { state, origin } = entry;
   const base = view.base;
-  const next = action.flip ? flipSheet(state) : fold(state, action);
-  const nextOrigin = action.flip ? origin : originAfterFold(origin, state, action);
-  const axis = action.flip ? 'x' : action.axis;
-  const pivot = action.flip
-    ? (axis === 'x' ? origin.x : origin.y) + state.w / 2
-    : (axis === 'x' ? origin.x : origin.y) + action.at;
-  const isMoving = (x, y) => {
-    if (action.flip) return true;
-    const c = axis === 'x' ? x : y;
-    return action.from === 'start' ? c < action.at : c >= action.at;
-  };
-  // знак поворота: часть, что слева/сверху от оси, поднимается к нам
-  const sign = action.flip || action.from === 'start' ? 1 : -1;
+  const axis = spec.flip ? 'x' : spec.axis;
+  const size = axis === 'x' ? state.w : state.h;
+  const offset = axis === 'x' ? origin.x : origin.y;
+  const fromStart = spec.flip || spec.from === 'start';
+  // знак поворота: часть слева/сверху от линии поднимается к нам
+  const sign = fromStart ? 1 : -1;
   const rotate = (deg) => (axis === 'x' ? `rotateY(${sign * deg}deg)` : `rotateX(${-sign * deg}deg)`);
   const backTurn = axis === 'x' ? 'rotateY(180deg)' : 'rotateX(180deg)';
+  const lift = spec.flip ? 60 : 3;
 
   const flap = el('div', `flap ${axis}`);
-  flap.style.transformOrigin = axis === 'x' ? `${pivot * base}px 0` : `0 ${pivot * base}px`;
   const cast = el('div', 'cast');
-  const hidden = [];
-  const box = [Infinity, Infinity, -Infinity, -Infinity];
-
-  for (let y = 0; y < state.h; y++) {
-    for (let x = 0; x < state.w; x++) {
-      if (!isMoving(x, y)) continue;
-      const card = cardNode(state, origin, x, y, base);
-      card.classList.add('flying');
-      // куда клетка ляжет: зеркально относительно оси
-      const ax = origin.x + x;
-      const ay = origin.y + y;
-      const dx = axis === 'x' ? 2 * pivot - ax - 1 : ax;
-      const dy = axis === 'y' ? 2 * pivot - ay - 1 : ay;
-      const nx = dx - nextOrigin.x;
-      const ny = dy - nextOrigin.y;
-      const back = faceNode(topOf(next.stacks[ny * next.w + nx]), 'back');
-      back.style.transform = backTurn;
-      card.append(back);
-      flap.append(card);
-      box[0] = Math.min(box[0], dx);
-      box[1] = Math.min(box[1], dy);
-      box[2] = Math.max(box[2], dx + 1);
-      box[3] = Math.max(box[3], dy + 1);
-      const original = ui.board.querySelector(`.card[data-x="${x}"][data-y="${y}"]:not(.flying)`);
-      if (original) hidden.push(original);
-    }
-  }
-  Object.assign(cast.style, {
-    left: `${box[0] * base}px`,
-    top: `${box[1] * base}px`,
-    width: `${(box[2] - box[0]) * base}px`,
-    height: `${(box[3] - box[1]) * base}px`,
-  });
-  for (const node of hidden) node.style.visibility = 'hidden';
+  const shadow = ui.board.querySelector('.sheet-shadow');
   ui.board.querySelectorAll('.crease, .hint-arrow').forEach((node) => node.remove());
-  if (!action.flip) ui.board.append(cast);
+  if (!spec.flip) ui.board.append(cast);
   ui.board.append(flap);
 
-  const lift = action.flip ? 60 : 3;
+  const originals = new Map();
+  ui.board.querySelectorAll('.card:not(.flying)').forEach((card) => originals.set(`${card.dataset.x},${card.dataset.y}`, card));
+  const touched = new Set();
+  const restore = () => {
+    for (const card of touched) {
+      card.style.visibility = '';
+      card.querySelector('.face').style.clipPath = '';
+    }
+    touched.clear();
+  };
+
+  // Оборот стопки после переворота: нижний слой, другой стороной.
+  const underside = (stack) => {
+    const bottom = stack[0];
+    return { cell: bottom.cell, flipped: !bottom.flipped, turned: axis === 'y' ? !bottom.turned : bottom.turned };
+  };
+
+  // Обрезка: keepStart — оставить долю f от начала клетки, иначе — всё после доли f.
+  const insets = (keepStart, f) => {
+    const cut = `${((keepStart ? 1 - f : f) * 100).toFixed(2)}%`;
+    if (axis === 'x') return keepStart ? `inset(0 ${cut} 0 0)` : `inset(0 0 0 ${cut})`;
+    return keepStart ? `inset(0 0 ${cut} 0)` : `inset(${cut} 0 0 0)`;
+  };
+  let splits = []; // [{ front, back, original }] — разрезанные клетки (целый ряд или столбец)
+  const applySplits = (f) => {
+    for (const split of splits) {
+      split.front.style.clipPath = insets(fromStart, f);
+      split.back.style.clipPath = insets(!fromStart, 1 - f); // оборот повёрнут — его оси зеркальны
+      split.original.querySelector('.face').style.clipPath = insets(!fromStart, f);
+    }
+  };
+
+  let layoutKey = null;
+  const layout = (at) => {
+    const key = spec.flip ? 'flip' : Number.isInteger(at) ? `line ${at}` : `cut ${Math.floor(at)}`;
+    if (key === layoutKey) return;
+    layoutKey = key;
+    flap.replaceChildren();
+    restore();
+    splits = [];
+    const cut = spec.flip || Number.isInteger(at) ? null : Math.floor(at);
+    for (let y = 0; y < state.h; y++) {
+      for (let x = 0; x < state.w; x++) {
+        const c = axis === 'x' ? x : y;
+        const whole = spec.flip || (fromStart ? c + 1 <= at : c >= at);
+        if (!whole && c !== cut) continue;
+        const card = cardNode(state, origin, x, y, base);
+        card.classList.add('flying');
+        const back = faceNode(underside(state.stacks[y * state.w + x]), 'back');
+        back.style.transform = backTurn;
+        card.append(back);
+        flap.append(card);
+        const original = originals.get(`${x},${y}`);
+        if (!original) continue;
+        touched.add(original);
+        if (whole) original.style.visibility = 'hidden';
+        else splits.push({ front: card.querySelector('.face'), back, original });
+      }
+    }
+  };
+
   const control = {
     angle: 0,
-    action,
-    set(deg) {
-      control.angle = Math.max(0, Math.min(180, deg));
+    at: spec.flip ? size / 2 : null,
+    set(angle, at = control.at) {
+      control.angle = Math.max(0, Math.min(180, angle));
+      control.at = spec.flip ? size / 2 : Math.max(EDGE, Math.min(size - EDGE, at));
+      layout(control.at);
+      if (splits.length > 0) applySplits(control.at - Math.floor(control.at));
+
+      const pivot = offset + control.at;
+      flap.style.transformOrigin = axis === 'x' ? `${pivot * base}px 0` : `0 ${pivot * base}px`;
       const t = control.angle / 180;
-      const rise = action.flip ? Math.sin(Math.PI * t) * lift : lift;
+      const rise = spec.flip ? Math.sin(Math.PI * t) * lift : lift;
       flap.style.transform = `translateZ(${rise}px) ${rotate(control.angle)}`;
       flap.style.setProperty('--front-shade', (0.5 * t ** 1.3).toFixed(3));
       flap.style.setProperty('--back-shade', (0.5 * (1 - t) ** 1.3).toFixed(3));
-      cast.style.opacity = (Math.sin(Math.PI * t * 0.95) * 0.9).toFixed(3);
+
+      if (!spec.flip) {
+        // тень ложится туда, куда опустится поднятая часть
+        const [lo, hi] = fromStart ? [0, control.at] : [control.at, size];
+        const from = offset + 2 * control.at - hi;
+        const to = offset + 2 * control.at - lo;
+        const other = axis === 'x' ? [origin.y, state.h] : [origin.x, state.w];
+        Object.assign(cast.style, axis === 'x'
+          ? { left: `${from * base}px`, width: `${(to - from) * base}px`, top: `${other[0] * base}px`, height: `${other[1] * base}px` }
+          : { top: `${from * base}px`, height: `${(to - from) * base}px`, left: `${other[0] * base}px`, width: `${other[1] * base}px` });
+        cast.style.opacity = (Math.sin(Math.PI * t * 0.95) * 0.9).toFixed(3);
+        // тень листа — под тем, что лежит на столе: неподвижная часть и опустившаяся
+        if (shadow) {
+          const [keepLo, keepHi] = fromStart ? [control.at, size] : [0, control.at];
+          const down = control.angle > 90; // поднятая часть уже над другой половиной
+          const first = down ? Math.min(keepLo, 2 * control.at - hi) : 0;
+          const last = down ? Math.max(keepHi, 2 * control.at - lo) : size;
+          if (axis === 'x') Object.assign(shadow.style, { left: `${(offset + first) * base}px`, width: `${(last - first) * base}px` });
+          else Object.assign(shadow.style, { top: `${(offset + first) * base}px`, height: `${(last - first) * base}px` });
+        }
+      }
     },
-    // Плавно довести до угла. Длительность — по оставшемуся пути.
-    animateTo(deg, done, { duration = null } = {}) {
-      const from = control.angle;
-      const ms = duration ?? Math.max(200, (Math.abs(deg - from) / 180) * (action.flip ? 720 : 520));
+    // Плавно довести до угла (и линии). Длительность — по оставшемуся пути.
+    animateTo(angle, at, done, { duration = null } = {}) {
+      const from = { angle: control.angle, at: control.at };
+      const target = { angle, at: at ?? control.at };
+      const path = Math.abs(target.angle - from.angle) / 180 + Math.abs(target.at - from.at) * 0.35;
+      const ms = duration ?? Math.max(200, path * (spec.flip ? 720 : 520));
       const start = performance.now();
       const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
       let finished = false;
       const finish = () => {
         if (finished) return;
         finished = true;
-        control.set(deg);
+        control.set(target.angle, target.at);
         done?.();
       };
       const step = (now) => {
         if (finished) return;
         const t = Math.min(1, (now - start) / ms);
-        control.set(from + (deg - from) * ease(t));
+        const e = ease(t);
+        control.set(from.angle + (target.angle - from.angle) * e, from.at + (target.at - from.at) * e);
         if (t < 1) requestAnimationFrame(step);
         else finish();
       };
@@ -781,10 +941,16 @@ function buildFlap(entry, action) {
     remove() {
       flap.remove();
       cast.remove();
-      for (const node of hidden) node.style.visibility = '';
+      restore();
     },
   };
-  control.set(0);
+  return control;
+}
+
+// Сгиб по линии сетки или переворот: клапан, поставленный в начальное положение.
+function buildFlap(entry, action) {
+  const control = createFold(entry, action.flip ? { flip: true } : { axis: action.axis, from: action.from });
+  control.set(0, action.flip ? undefined : action.at);
   return control;
 }
 
@@ -821,8 +987,7 @@ function doFold(move, flap = null) {
   animating = true;
   ui.choices.replaceChildren();
   const control = flap ?? buildFlap(entry, move);
-  sound('fold');
-  control.animateTo(180, () => {
+  const ms = control.animateTo(180, move.at, () => {
     sound('land');
     navigator.vibrate?.(8);
     game = playFold(game, move);
@@ -832,6 +997,7 @@ function doFold(move, flap = null) {
     render({ landed: landedKeys(entry, move) });
     afterMove();
   });
+  sound('move', { duration: ms / 1000 });
 }
 
 function doFlip() {
@@ -842,8 +1008,7 @@ function doFlip() {
   animating = true;
   renderChoices();
   const control = buildFlap(entry, { flip: true });
-  sound('flip');
-  control.animateTo(180, () => {
+  const ms = control.animateTo(180, undefined, () => {
     game = playFlip(game);
     animating = false;
     control.remove();
@@ -851,6 +1016,7 @@ function doFlip() {
     render();
     afterMove();
   });
+  sound('move', { duration: ms / 1000, flip: true });
 }
 
 function afterMove() {
@@ -874,13 +1040,14 @@ function undoMove({ fast = false, counted = true } = {}) {
     animating = true;
     const control = buildFlap(currentEntry(game), action);
     control.set(180);
-    control.animateTo(0, () => {
+    const ms = control.animateTo(0, undefined, () => {
       control.remove();
       animating = false;
       saveDay();
       render();
       resolve();
     }, { duration: fast ? 180 : null });
+    sound('move', { duration: ms / 1000, flip: !!action.flip });
   });
 }
 
@@ -908,30 +1075,30 @@ function useHint() {
 }
 
 // ---------- сгиб пальцем ----------
-// Нажал на лист и тянешь: поднимается часть от края, за который взялся, до линии
-// посередине между точкой нажатия и пальцем — как у настоящей бумаги.
-// Отпустил дальше середины или быстрым взмахом — сгиб доводится, иначе бумага ложится обратно.
+// Нажал на лист и тянешь — как настоящую бумагу за край: поднимается часть от края
+// до линии сгиба, а линия идёт посередине между точкой нажатия и пальцем, поэтому
+// загнутая часть растёт плавно, ряд за рядом. В начале жеста бумага сначала
+// приподнимается (угол растёт за первые полклетки), дальше лежит и тянется за пальцем.
+// Отпустил — линия доезжает до ближайшей линии сетки и сгиб доводится,
+// а если потянул совсем чуть-чуть — бумага ложится обратно.
 
-function dragTarget(axis, start, delta) {
+const LIFT_CELLS = 0.55; // за сколько клеток пути бумага поднимается до конца
+
+function dragPose(drag) {
   const { state } = currentEntry(game);
-  const size = axis === 'x' ? state.w : state.h;
-  const grabbed = axis === 'x' ? start.u : start.v;
+  const size = drag.axis === 'x' ? state.w : state.h;
+  const grabbed = drag.axis === 'x' ? drag.start.u : drag.start.v;
+  const from = drag.delta >= 0 ? 'start' : 'end'; // тянем вправо/вниз — поднимается часть у начала
+  const pulled = Math.abs(drag.delta);
+  const at = Math.max(EDGE, Math.min(size - EDGE, grabbed + drag.delta / 2));
+  const t = Math.min(1, pulled / LIFT_CELLS);
+  const angle = 180 * (1 - (1 - t) ** 2);
+  // куда ляжет линия, если отпустить: ближайшая линия сетки, так чтобы
+  // клетка под пальцем оказалась в поднятой части
   const c0 = Math.floor(grabbed);
-  const towardEnd = delta >= 0; // тянем вправо/вниз — поднимается часть у начала
-  const want = Math.round(grabbed + delta / 2);
-  if (towardEnd) {
-    if (c0 + 1 > size - 1) return null;
-    return { axis, from: 'start', at: Math.max(c0 + 1, Math.min(size - 1, want)) };
-  }
-  if (c0 < 1) return null;
-  return { axis, from: 'end', at: Math.max(1, Math.min(c0, want)) };
-}
-
-function dragAngle(move, grabbed, delta) {
-  const r = Math.abs(move.at - grabbed);
-  const p = grabbed + delta;
-  const cos = move.from === 'start' ? (move.at - p) / r : (p - move.at) / r;
-  return (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
+  const [lo, hi] = from === 'start' ? [c0 + 1, size - 1] : [1, c0];
+  const snap = lo > hi ? null : Math.max(lo, Math.min(hi, Math.round(at)));
+  return { from, at, angle, pulled, snap };
 }
 
 ui.table.addEventListener('pointerdown', (event) => {
@@ -943,7 +1110,11 @@ ui.table.addEventListener('pointerdown', (event) => {
   start.u = Math.max(0.01, Math.min(state.w - 0.01, start.u));
   start.v = Math.max(0.01, Math.min(state.h - 0.01, start.v));
   const now = performance.now();
-  drag = { id: event.pointerId, x0: event.clientX, y0: event.clientY, start, axis: null, move: null, flap: null, last: { x: event.clientX, y: event.clientY, t: now }, v: 0 };
+  drag = {
+    id: event.pointerId, x0: event.clientX, y0: event.clientY, start, axis: null, delta: 0,
+    side: null, fold: null, voice: null, last: { x: event.clientX, y: event.clientY, t: now }, v: 0,
+    sound: { angle: 0, at: 0, t: now },
+  };
   try {
     ui.table.setPointerCapture(event.pointerId);
   } catch {
@@ -956,8 +1127,12 @@ ui.table.addEventListener('pointermove', (event) => {
   const dx = event.clientX - drag.x0;
   const dy = event.clientY - drag.y0;
   if (!drag.axis) {
-    if (Math.hypot(dx, dy) < 9) return;
+    if (Math.hypot(dx, dy) < 8) return;
     drag.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+    selected = null;
+    hint = null;
+    ui.choices.replaceChildren();
+    drag.voice = dragVoice();
   }
   const now = performance.now();
   const along = drag.axis === 'x' ? event.clientX - drag.last.x : event.clientY - drag.last.y;
@@ -965,45 +1140,46 @@ ui.table.addEventListener('pointermove', (event) => {
   if (dt > 0) drag.v = 0.6 * drag.v + 0.4 * (along / dt);
   drag.last = { x: event.clientX, y: event.clientY, t: now };
 
-  const delta = (drag.axis === 'x' ? dx : dy) / view.cell;
-  const move = dragTarget(drag.axis, drag.start, delta);
-  if (!sameAction(move, drag.move)) {
-    drag.flap?.remove();
-    drag.flap = null;
-    drag.move = move;
-    if (move) {
-      selected = null;
-      hint = null;
-      ui.choices.replaceChildren();
-      drag.flap = buildFlap(currentEntry(game), move);
-      sound('fold');
-    }
+  drag.delta = (drag.axis === 'x' ? dx : dy) / view.cell;
+  const pose = dragPose(drag);
+  // сменилась сторона (палец ушёл за точку нажатия) — бумага там лежит, меняем незаметно
+  if (pose.from !== drag.side) {
+    drag.fold?.remove();
+    drag.side = pose.from;
+    drag.fold = createFold(currentEntry(game), { axis: drag.axis, from: pose.from });
   }
-  if (drag.flap) {
-    const grabbed = drag.axis === 'x' ? drag.start.u : drag.start.v;
-    drag.flap.set(dragAngle(move, grabbed, delta));
-  }
+  drag.fold.set(pose.angle, pose.at);
+
+  // шорох — по скорости бумаги
+  const ds = drag.sound;
+  const st = Math.max(1, now - ds.t);
+  drag.voice?.speed((Math.abs(pose.angle - ds.angle) / 180 + Math.abs(pose.at - ds.at)) / st * 4);
+  drag.sound = { angle: pose.angle, at: pose.at, t: now };
 });
 
 function endDrag(event) {
   if (!drag || event.pointerId !== drag.id) return;
-  const { flap, move, v, axis } = drag;
+  const current = drag;
   drag = null;
-  if (!axis) return; // это был тап — его обработает click
+  current.voice?.stop();
+  if (!current.axis) return; // это был тап — его обработает click
   suppressClickUntil = Date.now() + 350;
-  if (!flap) {
+  const { fold: control } = current;
+  if (!control) {
     render();
     return;
   }
-  const fling = v * (move.from === 'start' ? 1 : -1); // скорость в сторону сгиба, px/мс
-  const complete = event.type === 'pointerup' && fling > -0.3 && (flap.angle >= 90 || (fling > 0.35 && flap.angle >= 20));
+  const pose = dragPose(current);
+  const fling = current.v * (pose.from === 'start' ? 1 : -1); // скорость в сторону сгиба, px/мс
+  const intended = pose.pulled >= 0.45 || (fling > 0.35 && pose.pulled >= 0.15);
+  const complete = event.type === 'pointerup' && pose.snap !== null && fling > -0.3 && intended;
   if (complete) {
-    doFold(move, flap);
+    doFold({ axis: current.axis, at: pose.snap, from: pose.from }, control);
     return;
   }
   animating = true;
-  flap.animateTo(0, () => {
-    flap.remove();
+  control.animateTo(0, undefined, () => {
+    control.remove();
     animating = false;
     render();
   });
@@ -1286,7 +1462,7 @@ ui.sound.addEventListener('click', () => {
   soundOn = !soundOn;
   store.set('skladno:sound', soundOn);
   renderTopbar();
-  sound('fold');
+  sound('land');
 });
 
 // Тап мимо линии и кнопок — снять выбор линии.
