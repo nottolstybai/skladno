@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "preview": "node scripts/preview.js"
+    "preview": "node scripts/preview.js",
+    "bump": "node scripts/bump.js"
   }
 }

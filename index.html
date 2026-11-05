@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-version="202611050152">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -10,16 +10,37 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 8h24v16H4z' fill='%23c9573f'/%3E%3Cpath d='M28 16v8h-8z' fill='%232d4a7a'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Manrope:wght@400;600;700&display=swap">
-  <link rel="stylesheet" href="style.css">
-  <script type="module" src="src/main.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Manrope:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="style.css?v=202611050152">
+  <script type="importmap">
+  {
+    "imports": {
+      "./src/daily.js": "./src/daily.js?v=202611050152",
+      "./src/fold.js": "./src/fold.js?v=202611050152",
+      "./src/game.js": "./src/game.js?v=202611050152",
+      "./src/generator.js": "./src/generator.js?v=202611050152",
+      "./src/level.js": "./src/level.js?v=202611050152",
+      "./src/progress.js": "./src/progress.js?v=202611050152",
+      "./src/rng.js": "./src/rng.js?v=202611050152",
+      "./src/solver.js": "./src/solver.js?v=202611050152",
+      "./src/tutorial.js": "./src/tutorial.js?v=202611050152",
+      "./src/version.js": "./src/version.js?v=202611050152",
+      "./src/words.js": "./src/words.js?v=202611050152"
+    }
+  }
+  </script>
+  <script type="module" src="src/main.js?v=202611050152"></script>
 </head>
 <body>
   <main class="app">
+    <div class="topbar">
+      <span class="chip streak" id="streak" title="Дней подряд" hidden></span>
+      <button type="button" class="chip action" id="help">Как играть</button>
+    </div>
+
     <header class="top">
       <h1>Складно</h1>
       <p class="meta" id="meta"></p>
-      <button type="button" class="help-btn" id="help-open" aria-label="Как играть">?</button>
     </header>
 
     <section class="goal" aria-label="Образец">
@@ -27,43 +48,16 @@
       <div class="target" id="target"></div>
     </section>
 
-    <section class="table" id="table" aria-label="Бумага">
-      <div class="board" id="board"></div>
-    </section>
+    <section class="table" id="table" aria-label="Бумага"><div class="board" id="board"></div></section>
     <p class="legend"><span class="corner-icon" aria-hidden="true"></span>уголок клетки — цвет её обратной стороны</p>
 
     <div class="choices" id="choices"></div>
-
     <div class="folds" id="folds"></div>
     <p class="status" id="status" role="status" aria-live="polite"></p>
-
-    <div class="controls">
-      <button type="button" class="btn" id="undo">Отменить</button>
-      <button type="button" class="btn" id="hint">Подсказка</button>
-      <button type="button" class="btn" id="reset">Заново</button>
-    </div>
+    <div class="controls" id="controls"></div>
   </main>
 
-  <dialog class="help" id="help">
-    <h2>Как играть</h2>
-    <div class="demo" aria-hidden="true">
-      <div class="demo-strip">
-        <div class="demo-cell c4"></div>
-        <div class="demo-cell c1"></div>
-        <div class="demo-flap">
-          <div class="demo-card"><i class="f c1" style="--back: var(--c2)"></i><i class="b c2"></i></div>
-          <div class="demo-card"><i class="f c4" style="--back: var(--c3)"></i><i class="b c3"></i></div>
-        </div>
-        <div class="demo-crease"></div>
-      </div>
-    </div>
-    <ol>
-      <li>Коснись <b>линии между клетками</b> — там будет сгиб.</li>
-      <li>Выбери, <b>какую часть загнуть</b>: она перевернётся и ляжет сверху.</li>
-      <li>Сверху окажется <b>обратная сторона</b> — её цвет виден в уголке каждой клетки.</li>
-      <li>Сложи так, чтобы сверху получился <b>образец</b>, — и проступит слово дня.</li>
-    </ol>
-    <form method="dialog"><button class="btn primary">Понятно</button></form>
-  </dialog>
+  <dialog class="sheet" id="sheet" aria-labelledby="sheet-title"></dialog>
+  <noscript><p class="status">Для игры нужен JavaScript.</p></noscript>
 </body>
 </html>

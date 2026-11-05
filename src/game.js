@@ -51,8 +51,13 @@ export function originAfterFold(origin, state, move) {
 export function playFold(game, move) {
   if (gameStatus(game) !== 'playing') return game;
   const { state, origin } = currentEntry(game);
-  const entry = { state: fold(state, move), origin: originAfterFold(origin, state, move) };
+  const entry = { state: fold(state, move), origin: originAfterFold(origin, state, move), move };
   return { ...game, history: [...game.history, entry] };
+}
+
+// Сгибы, сделанные в партии, по порядку — чтобы сохранить и восстановить её.
+export function movesOf(game) {
+  return game.history.slice(1).map((entry) => entry.move);
 }
 
 export function undo(game) {
